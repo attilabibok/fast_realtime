@@ -24,3 +24,20 @@ for dump_file in /dumps/*.dump; do
 done
 
 echo "All dumps processed."
+
+# Create TXFull if it doesn't exist
+echo "Checking if database TXFull exists..."
+if psql -h postgis -U admin -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname = 'TXFull'" | grep -q 1; then
+  echo "Database TXFull exists. Skipping creation..."
+else
+  echo "Creating database TXFull..."
+  createdb -h postgis -U admin TXFull
+fi
+
+# Run SQL scripts in TXFull
+echo "Running SQL scripts in TXFull..."
+psql -h postgis -U admin -d TXFull -f /docker-entrypoint-initdb.d/create_foreign_data_views.sql
+psql -h postgis -U admin -d TXFull -f /docker-entrypoint-initdb.d/create_merged_view.sql
+psql -h postgis -U admin -d TXFull -f /docker-entrypoint-initdb.d/create_merged_materialized_view.sql
+
+echo "TXFull database setup completed."

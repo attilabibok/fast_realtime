@@ -6,25 +6,31 @@ CREATE EXTENSION IF NOT EXISTS postgres_fdw;
 DO $$
 DECLARE
     dbs TEXT[][] := ARRAY[
-        ['08', 'ABL', 'ABL'],
-        ['04', 'AMA', 'AMA'],
-        ['19', 'ATL', 'ATL'],
-        ['14', 'AUS', 'AUS'],
-        ['20', 'BMT', 'BMT'],
-        ['17', 'BRY', 'BRY'],
-        ['23', 'BWD', 'BWD'],
-        ['25', 'CHS', 'CHS'],
-        ['16', 'CRP', 'CRP'],
-        ['18', 'DAL', 'DAL'],
-        ['24', 'ELP', 'ELP'],
-        ['02', 'FTW', 'FTW'],
-        ['11', 'LFK', 'LFK'],
-        ['06', 'ODA', 'ODA'],
         ['01', 'PAR', 'PAR'],
-        ['21', 'PHR', 'PHR'],
-        ['15', 'SAT', 'SAT'],
+        ['02', 'FTW', 'FTW'],
+        -- ['03', 'WFS', 'WFS'],
+        ['04', 'AMA', 'AMA'],
+        -- ['05', 'LBB', 'LBB'],
+        ['06', 'ODA', 'ODA'],
         ['07', 'SJT', 'SJT'],
-        ['13', 'YKM', 'YKM']
+        ['08', 'ABL', 'ABL'],
+        -- ['09', 'WAC', 'WAC'],
+        -- ['10', 'TYL', 'TYL'],
+        ['11', 'LFK', 'LFK'],
+        -- ['12', 'HOU', 'HOU'],
+        ['13', 'YKM', 'YKM'],
+        ['14', 'AUS', 'AUS'],
+        ['15', 'SAT', 'SAT'],
+        ['16', 'CRP', 'CRP'],
+        ['17', 'BRY', 'BRY'],
+        ['18', 'DAL', 'DAL'],
+        ['19', 'ATL', 'ATL'],
+        ['20', 'BMT', 'BMT'],
+        ['21', 'PHR', 'PHR'],
+        -- ['22', 'LRD', 'LRD'],
+        ['23', 'BWD', 'BWD'],
+        ['24', 'ELP', 'ELP'],
+        ['25', 'CHS', 'CHS']
     ];
     db TEXT[];
     server_name TEXT;
