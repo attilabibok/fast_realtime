@@ -1,0 +1,11 @@
+seeds:
+  hourly_seed:
+    caches: [flood_cache]
+    coverages: [texas]
+    levels: [12, 13, 14, 15, 16]
+    refresh_before: 3600  # refresh tiles older than 1 hour
+
+coverages:
+  texas:
+    srs: 'EPSG:4326'
+    bbox: [-106.65, 25.84, -93.51, 36.5]

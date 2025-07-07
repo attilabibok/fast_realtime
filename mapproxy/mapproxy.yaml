@@ -1,0 +1,37 @@
+services:
+  demo:
+  wms:
+    md:
+      title: "Texas Flood Cache"
+      abstract: "Cached WMS from GeoServer"
+
+layers:
+  - name: texas_flood
+    title: "Flood Areas in Texas"
+    sources: [flood_cache]
+
+caches:
+  flood_cache:
+    grids: [webmercator]
+    sources: [flood_wms]
+    cache:
+      type: file
+      directory: ./cache_data
+    meta_size: [4, 4]
+    disable_storage: false
+
+sources:
+  flood_wms:
+    type: wms
+    req:
+      url: http://geoserver:8080/geoserver/txdot/wms
+      layers: s_flood_merge_ar
+      styles: floodstyle
+      transparent: true
+      format: image/png
+
+grids:
+  webmercator:
+    base: GLOBAL_WEBMERCATOR
+    bbox: [-106.65, 25.84, -93.51, 36.5]
+    srs: EPSG:3857

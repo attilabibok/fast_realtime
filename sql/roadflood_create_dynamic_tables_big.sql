@@ -337,6 +337,13 @@ WHERE
 UPDATE s_flood_road_ln SET geometry = ST_SetSRID(geometry, 4326) WHERE ST_SRID(geometry) = 0;
 UPDATE s_flood_merge_ar SET geometry = ST_SetSRID(geometry, 4326) WHERE ST_SRID(geometry) = 0;
 
+-- Set tile_id as PRIMARY KEY
+ALTER TABLE s_flood_merge_ar
+ADD CONSTRAINT s_flood_merge_ar_pkey PRIMARY KEY (tile_id);
+
+ALTER TABLE s_flood_road_ln
+ADD CONSTRAINT s_flood_road_ln_pkey PRIMARY KEY (tile_id);
+
 -- Create the new table with a single row containing the first model_run_time value from t_flow_forecast
 DROP TABLE IF EXISTS t_current_forecast;
 

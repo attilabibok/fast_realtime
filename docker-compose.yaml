@@ -1,0 +1,70 @@
+
+services:
+  postgis:
+      image: postgis/postgis:17-3.5
+      container_name: postgis
+      environment:
+        POSTGRES_USER: admin
+        POSTGRES_PASSWORD: admin123
+        POSTGRES_DB: gis
+      ports:
+        - "5432:5432"
+      volumes:
+        - ./pgdata:/var/lib/postgresql/data # store postgres data in attached local folder
+        # - ./postgres_init/init.sh:/docker-entrypoint-initdb.d/init.sh:ro # init script to load the dumps on startup
+        # - /media/abibok/Data/txdot_fast_pgis:/dumps:ro # change the path to whereever the dumps are stores
+      restart: unless-stopped
+  postgis-init:
+    image: postgis/postgis:17-3.5
+    container_name: postgis-init
+    depends_on:
+      - postgis
+    environment:
+      PGPASSWORD: admin123
+    volumes:
+      - ./postgres_init/restore_dumps.sh:/restore_dumps.sh:ro
+      - /media/abibok/Data/txdot_fast_pgis:/dumps:ro
+    entrypoint: ["/bin/bash", "/restore_dumps.sh"]
+
+# geoserver - provides the WFS and WMTS layers, connects directly to the postgis db
+  geoserver:
+    build: ./geoserver
+    container_name: geoserver
+    environment:
+      - GEOSERVER_ADMIN_USER=admin
+      - GEOSERVER_ADMIN_PASSWORD=geoserver
+      - STABLE_EXTENSION=gdal,wps,css,postgis,postgresql,sql
+      - CORS_ENABLED=true
+      - CORS_ALLOWED_METHODS=GET,POST,PUT,HEAD,OPTIONS
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./geoserver_data:/opt/geoserver/data_dir
+    depends_on:
+      - postgis
+    restart: unless-stopped
+
+# mapproxy to cache tiles - only needed for WMTS layers.
+  mapproxy:
+    image: kartoza/mapproxy
+    container_name: mapproxy
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./mapproxy:/mapproxy
+    working_dir: /mapproxy
+    command: ["uwsgi", "--http", ":8080", "--master", "--enable-threads", "--processes", "4", "--threads", "8", "--module", "mapproxy.wsgi:application"]
+    depends_on:
+      - geoserver
+    restart: unless-stopped
+
+  mapproxy_reseed:
+    build: ./mapproxy
+    container_name: mapproxy_reseed
+    volumes:
+      - ./mapproxy:/mapproxy
+    depends_on:
+      - mapproxy
+
+volumes:
+  postgis_data:
