@@ -6,7 +6,18 @@ until pg_isready -h postgis -p 5432 -U admin; do
   sleep 2
 done
 
-echo "PostgreSQL is ready. Checking and restoring dumps..."
+echo "PostgreSQL is ready. "
+
+# Check if DOWNLOAD_DUMPS is true
+if [ "${DOWNLOAD_DUMPS}" = "true" ]; then
+    echo "Calling download_dumps.sh..."
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    "${SCRIPT_DIR}/download_dumps.sh"
+else
+    echo "DOWNLOAD_DUMPS is not set to 'true'. Skipping dump download."
+fi
+
+echo "Checking and restoring dumps..."
 
 for dump_file in /dumps/*.dump; do
   [ -e "$dump_file" ] || continue

@@ -19,9 +19,10 @@ services:
       - postgis
     environment:
       PGPASSWORD: admin123
+      DOWNLOAD_DUMPS: false
     volumes:
       - ./postgres_init:/postgres_init:ro # initializer scripts
-      - /media/abibok/Data/txdot_fast_pgis:/dumps:ro # Change this to your local folder of database dumps
+      - /media/abibok/Data/txdot_fast_pgis:/dumps # Change this to your local folder of database dumps
     entrypoint: ["/bin/bash", "/postgres_init/restore_dumps.sh"]
 
 # geoserver - provides the WFS and WMTS layers, connects directly to the postgis db
