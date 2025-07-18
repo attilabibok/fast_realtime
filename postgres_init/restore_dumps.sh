@@ -18,11 +18,15 @@ else
 fi
 
 echo "Checking and restoring dumps..."
+echo "Dump folder content:"
+ls -lh /dumps
 
 for dump_file in /dumps/*.dump; do
   [ -e "$dump_file" ] || continue
 
   db_name=$(basename "$dump_file" _realtime_hand.dump | cut -d_ -f2)
+  echo "Dump file: $dump_file"
+  echo "Target database: $db_name"
 
   echo "Checking if database $db_name exists..."
   if psql -h postgis -U admin -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname = '$db_name'" | grep -q 1; then
@@ -45,10 +49,14 @@ else
   createdb -h postgis -U admin TXFull
 fi
 
+# Run alter_tables.sh before setting up TXFull
+echo "Running table alterations to include primary key..."
+bash "/postgres_init/alter_existing_dyn_tables.sh"
+
 # Run SQL scripts in TXFull
 echo "Running SQL scripts in TXFull..."
-psql -h postgis -U admin -d TXFull -f /docker-entrypoint-initdb.d/create_foreign_data_views.sql
-psql -h postgis -U admin -d TXFull -f /docker-entrypoint-initdb.d/create_merged_view.sql
-psql -h postgis -U admin -d TXFull -f /docker-entrypoint-initdb.d/create_merged_materialized_view.sql
+psql -h postgis -U admin -d TXFull -f /postgres_init/create_foreign_data_views.sql
+psql -h postgis -U admin -d TXFull -f /postgres_init/create_merged_view.sql
+psql -h postgis -U admin -d TXFull -f /postgres_init/create_merged_materialized_view.sql
 
 echo "TXFull database setup completed."
