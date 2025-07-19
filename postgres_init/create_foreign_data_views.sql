@@ -6,52 +6,57 @@ CREATE EXTENSION IF NOT EXISTS postgres_fdw;
 DO $$
 DECLARE
     dbs TEXT[][] := ARRAY[
-        ['01', 'PAR', 'PAR'],
-        ['02', 'FTW', 'FTW'],
-        ['03', 'WFS', 'WFS'],
-        ['04', 'AMA', 'AMA'],
-        ['05', 'LBB', 'LBB'],
-        ['06', 'ODA', 'ODA'],
-        ['07', 'SJT', 'SJT'],
-        ['08', 'ABL', 'ABL'],
-        ['09', 'WAC', 'WAC'],
-        ['10', 'TYL', 'TYL'],
-        ['11', 'LFK', 'LFK'],
-        ['12', 'HOU', 'HOU'],
-        ['13', 'YKM', 'YKM'],
-        ['14', 'AUS', 'AUS'],
-        ['15', 'SAT', 'SAT'],
-        ['16', 'CRP', 'CRP'],
-        ['17', 'BRY', 'BRY'],
-        ['18', 'DAL', 'DAL'],
-        ['19', 'ATL', 'ATL'],
-        ['20', 'BMT', 'BMT'],
-        ['21', 'PHR', 'PHR'],
-        ['22', 'LRD', 'LRD'],
-        ['23', 'BWD', 'BWD'],
-        ['24', 'ELP', 'ELP'],
-        ['25', 'CHS', 'CHS']
+        ['01', 'PAR'],
+        ['02', 'FTW'],
+        ['03', 'WFS'],
+        ['04', 'AMA'],
+        ['05', 'LBB'],
+        ['06', 'ODA'],
+        ['07', 'SJT'],
+        ['08', 'ABL'],
+        ['09', 'WAC'],
+        ['10', 'TYL'],
+        ['11', 'LFK'],
+        ['12', 'HOU'],
+        ['13', 'YKM'],
+        ['14', 'AUS'],
+        ['15', 'SAT'],
+        ['16', 'CRP'],
+        ['17', 'BRY'],
+        ['18', 'DAL'],
+        ['19', 'ATL'],
+        ['20', 'BMT'],
+        ['21', 'PHR'],
+        ['22', 'LRD'],
+        ['23', 'BWD'],
+        ['24', 'ELP'],
+        ['25', 'CHS']
     ];
     db TEXT[];
     server_name TEXT;
     schema_name TEXT;
+    db_fullname TEXT;
 BEGIN
     FOREACH db SLICE 1 IN ARRAY dbs LOOP
-        -- Use 3-letter code for identifiers
-        server_name := quote_ident(lower(db[1]) || '_srv');
-        schema_name := quote_ident('foreign_' || lower(db[1]));
+        -- Construct names
+        server_name := quote_ident(lower(db[1]) || '_srv');                 -- e.g., '01_srv'
+        schema_name := quote_ident('foreign_' || lower(db[1]));            -- e.g., 'foreign_01'
+        db_fullname := db[1] || '_' || db[2] || '_realtime_hand';          -- e.g., '01_PAR_realtime_hand'
 
+        -- Create server
         EXECUTE format('
             CREATE SERVER IF NOT EXISTS %s
             FOREIGN DATA WRAPPER postgres_fdw
             OPTIONS (host %L, dbname %L, port %L);
-        ', server_name, 'localhost', db[2], '5432');
+        ', server_name, 'localhost', db_fullname, '5432');
 
+        -- Create user mapping
         EXECUTE format('
             CREATE USER MAPPING IF NOT EXISTS FOR CURRENT_USER SERVER %s
             OPTIONS (user %L, password %L);
         ', server_name, 'admin', 'admin123');
 
+        -- Create schema and import table
         EXECUTE format('
             CREATE SCHEMA IF NOT EXISTS %s;
         ', schema_name);

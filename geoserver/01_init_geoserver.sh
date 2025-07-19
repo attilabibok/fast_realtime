@@ -6,8 +6,31 @@ GEOSERVER_URL="http://localhost:8080/geoserver"
 AUTH="admin:geoserver"
 
 databases=(
-  ABL AMA ATL AUS BMT BRY BWD CHS CRP DAL ELP FTW
-  LFK ODA PAR PHR SAT SJT YKM
+  01_PAR_realtime_hand
+  02_FTW_realtime_hand
+  03_WFS_realtime_hand
+  04_AMA_realtime_hand
+  05_LBB_realtime_hand
+  06_ODA_realtime_hand
+  07_SJT_realtime_hand
+  08_ABL_realtime_hand
+  09_WAC_realtime_hand
+  10_TYL_realtime_hand
+  11_LFK_realtime_hand
+  12_HOU_realtime_hand
+  13_YKM_realtime_hand
+  14_AUS_realtime_hand
+  15_SAT_realtime_hand
+  16_CRP_realtime_hand
+  17_BRY_realtime_hand
+  18_DAL_realtime_hand
+  19_ATL_realtime_hand
+  20_BMT_realtime_hand
+  21_PHR_realtime_hand
+  22_LRD_realtime_hand
+  23_BWD_realtime_hand
+  24_ELP_realtime_hand
+  25_CHS_realtime_hand
 )
 
 # Wait for GeoServer to start

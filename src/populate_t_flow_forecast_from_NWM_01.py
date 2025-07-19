@@ -13,6 +13,8 @@
 
 # ************************************************************
 import boto3
+from botocore import UNSIGNED
+from botocore.config import Config
 import os
 import re
 import pandas as pd
@@ -139,7 +141,7 @@ def fn_streamflow_from_list_valid_files(list_valid_files, str_bucket):
 # ---------------------
 def fn_get_valid_forecast_group(date_prefix, bucket_name, file_pattern):
     
-    s3 = boto3.client('s3')
+    s3 = boto3.client('s3', config=Config(signature_version=UNSIGNED))
     
     """Check all forecast hours on a given date, and return the most recent with 18+ files."""
     short_range_prefix = date_prefix + 'short_range/'
@@ -251,7 +253,7 @@ def fn_populate_t_flow_forecast_from_NWM(str_config_file_path, b_print_output):
         raise KeyError("Missing [flow_from_nwm] section in config file")
         
     # -------- get Short-range from AWS nwm
-    s3 = boto3.client('s3')
+    s3 = boto3.client('s3', config=Config(signature_version=UNSIGNED))
     
     # ********* HARD CODED BUCKET **********
     bucket_name = 'noaa-nwm-pds'

@@ -66,5 +66,24 @@ services:
     depends_on:
       - mapproxy
 
+
+  fast-worker:
+    build:
+      context: .
+      dockerfile: fast-worker/Dockerfile
+    container_name: fast-worker
+    depends_on:
+      - postgis
+    environment:
+      DB_PASSWORD: admin123
+      INIT_DIR: /fast_realtime/src/txdot_dist_local
+      SCRIPT: /fast_realtime/src/fast_realtime_update.py
+    volumes:
+      - ./fast-worker:/app # this is needed for the runner script
+      - ./output:/fast_realtime/output # attach folder to see the outputs on the host machine
+    working_dir: /app
+    command: ["tail", "-f", "/dev/null"]
+    restart: on-failure
+
 volumes:
   postgis_data:

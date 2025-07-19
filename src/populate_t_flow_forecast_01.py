@@ -53,7 +53,7 @@ def fn_str_to_bool(value):
 
 
 # .........................................................
-def fn_populate_t_flow_forecast(str_config_file_path, b_print_output):
+def fn_populate_t_flow_forecast(str_config_file_path: str, b_print_output: bool = False):
     # suppress all warnings
     warnings.filterwarnings("ignore", category=UserWarning)
 

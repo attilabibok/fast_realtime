@@ -8,6 +8,8 @@
 
 # ************************************************************
 import boto3
+from botocore import UNSIGNED
+from botocore.config import Config
 import os
 import re
 import pandas as pd
@@ -50,7 +52,7 @@ def fn_str_to_bool(value):
 # ---------------------
 def fn_get_valid_forecast_group(date_prefix, bucket_name, file_pattern):
     
-    s3 = boto3.client('s3')
+    s3 = boto3.client('s3', config=Config(signature_version=UNSIGNED))
     
     """Check all forecast hours on a given date, and return the most recent with 18+ files."""
     short_range_prefix = date_prefix + 'short_range/'
@@ -93,7 +95,7 @@ def fn_parse_iso8601_date_from_s3(str_s3_filepath):
 # ~~~~~~~~~~~~~~~~~~~~~~
 def fn_determine_current_forecast():
     # get Short-range from AWS nwm
-    s3 = boto3.client('s3')
+    s3 = boto3.client('s3', config=Config(signature_version=UNSIGNED))
     
     result = []
 

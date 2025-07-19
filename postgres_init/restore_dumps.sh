@@ -23,8 +23,8 @@ ls -lh /dumps
 
 for dump_file in /dumps/*.dump; do
   [ -e "$dump_file" ] || continue
-
-  db_name=$(basename "$dump_file" _realtime_hand.dump | cut -d_ -f2)
+  
+  db_name=$(basename "$dump_file" .dump)
   echo "Dump file: $dump_file"
   echo "Target database: $db_name"
 
