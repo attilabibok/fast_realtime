@@ -1,0 +1,42 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python Debugger: Current File",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
+            "name": "FAST Realtime Update",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/fast_realtime_update.py",
+            "console": "integratedTerminal",
+            "args": [
+                "-c",
+                "${workspaceFolder}/src/config_realtime.ini",
+                "-r",
+                "True"
+            ]
+        },
+        {
+            "name": "FAST Realtime Batch",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/fast_realtime_batch.py",
+            "console": "integratedTerminal",
+            "args": [
+                "-f",
+                "${workspaceFolder}/src/txdot_dist_local",
+                "-r",
+                "True"
+            ]
+        }
+    ]
+}
