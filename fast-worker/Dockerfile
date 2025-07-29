@@ -53,7 +53,11 @@ RUN pip install \
     psycopg2-binary \
     boto3==1.34.103 \
     s3fs==2024.5.0 \
-    geoalchemy2
+    geoalchemy2 \
+    pyyaml \
+    esrijson \
+    pydantic_settings \
+    pydantic
 
 
 # Clean caches

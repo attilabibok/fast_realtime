@@ -1,5 +1,6 @@
 # project specific
 pgdata 
+output/
 venv
 geoserver_data
 geoserver_styles

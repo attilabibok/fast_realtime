@@ -22,7 +22,20 @@
                 "-c",
                 "${workspaceFolder}/src/config_realtime.ini",
                 "-r",
-                "True"
+                "False"
+            ]
+        },
+        {
+            "name": "FAST Realtime Merged",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/fast_realtime_update2.py",
+            "console": "integratedTerminal",
+            "args": [
+                "-c",
+                "${workspaceFolder}/src/config_FULL_hand_liux_v2.ini",
+                "--nwm",
+                "--quiet"
             ]
         },
         {
@@ -35,7 +48,7 @@
                 "-f",
                 "${workspaceFolder}/src/txdot_dist_local",
                 "-r",
-                "True"
+                "False"
             ]
         }
     ]

@@ -2,7 +2,7 @@
 set -e
 
 echo "Downloading dumps to /dumps..."
-BASE_URL="https://web.corral.tacc.utexas.edu/nfiedata/acarter/roadflood-db-20250702"
+BASE_URL="https://knatempstorage.s3.us-west-1.amazonaws.com/tx-fast-pgis-db"
 TARGET_DIR="/dumps"
 
 # Make sure the target directory exists
