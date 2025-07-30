@@ -252,9 +252,20 @@ DROP TABLE IF EXISTS t_current_forecast;
 CREATE TABLE t_current_forecast AS
 SELECT model_run_time FROM t_flow_forecast LIMIT 1;
 
+-- Ensure model_run_time column exists
 ALTER TABLE s_flood_merge_ar ADD COLUMN IF NOT EXISTS model_run_time TEXT;
-INSERT INTO s_flood_merge_ar (model_run_time) SELECT NULL WHERE NOT EXISTS (SELECT 1 FROM s_flood_merge_ar);
-UPDATE s_flood_merge_ar SET model_run_time = (SELECT model_run_time FROM t_current_forecast LIMIT 1);
+
+-- Update only if there are rows
+UPDATE s_flood_merge_ar
+SET model_run_time = (SELECT model_run_time FROM t_current_forecast LIMIT 1);
+
+-- Log a warning if the table is empty
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM s_flood_merge_ar) THEN
+        RAISE WARNING 's_flood_merge_ar is empty. No flood polygons were created for this run.';
+    END IF;
+END $$;
 
 -- Release advisory lock
 SELECT pg_advisory_unlock(20250628);
