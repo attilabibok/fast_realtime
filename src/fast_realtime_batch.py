@@ -1,13 +1,14 @@
 import time
 import datetime
 import argparse
+import traceback
 from pathlib import Path
 from tqdm import tqdm
 import concurrent.futures
 
 # Assuming this is your actual update function
 from fast_realtime_update import fn_str_to_bool
-from utils import FASTConfig, load_config, resolve_db_credentials
+from utils import load_config
 from fast import run_fast_realtime_update
 
 def run_single_update(ini_file: Path, print_output: bool) -> tuple[str, str, float, str]:
@@ -20,7 +21,8 @@ def run_single_update(ini_file: Path, print_output: bool) -> tuple[str, str, flo
         return (ini_file.name, "success", duration, "")
     except Exception as e:
         duration = time.time() - start
-        return (ini_file.name, "failed", duration, str(e))
+        tb = traceback.format_exc()
+        return (ini_file.name, "failed", duration, tb)
 
 
 def process_all_ini_files_parallel(folder_path: Path, print_output: bool = True, max_workers: int = 4):
@@ -61,7 +63,7 @@ def process_all_ini_files_parallel(folder_path: Path, print_output: bool = True,
 
     print(f"[i] Processing statewide file in single-process mode...\n")
 
-    txfull_config = Path("/fast_realtime/src/config_FULL_hand_liux_v2.ini").resolve()
+    txfull_config = Path("/fast_realtime/src/config_FULL_hand_linux_DA.ini").resolve()
     name, status, dur, msg = run_single_update(txfull_config, print_output)
     duration_str = str(datetime.timedelta(seconds=int(dur)))
     if status == "success":
@@ -98,7 +100,7 @@ if __name__ == "__main__":
         help="Path to folder containing .ini files",
         type=Path,
         # required=True,
-        default="./src/tcdot_dist_local"
+        default="./src/txdot_dist_local"
     )
 
     parser.add_argument(

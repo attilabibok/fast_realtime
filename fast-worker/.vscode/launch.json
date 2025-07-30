@@ -39,14 +39,27 @@
             ]
         },
         {
-            "name": "FAST Realtime Batch",
+            "name": "FAST Realtime Batch NWM",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/src/fast_realtime_batch.py",
             "console": "integratedTerminal",
             "args": [
                 "-f",
-                "${workspaceFolder}/src/txdot_dist_local",
+                "${workspaceFolder}/src/txdot_dist_local_nwm",
+                "-r",
+                "False"
+            ]
+        },
+        {
+            "name": "FAST Realtime Batch DA",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/fast_realtime_batch.py",
+            "console": "integratedTerminal",
+            "args": [
+                "-f",
+                "${workspaceFolder}/src/txdot_dist_local_da",
                 "-r",
                 "False"
             ]

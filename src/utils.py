@@ -12,7 +12,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 import geopandas as gpd
 import boto3
 import esrijson
-
+import pandas as pd
 
 class DatabaseConfig(BaseSettings):
     username: str
@@ -37,6 +37,7 @@ class DownloadConfig(BaseModel):
     url: str
     download_dir: str
     force: bool = False
+    cleanup_after_load: bool = False
 
 
 class FlowFromNWMConfig(BaseModel):
@@ -62,7 +63,16 @@ class WriteToS3Config(BaseModel):
 
 
 class LocalResultsConfig(BaseModel):
-    output_folder: str = "./output"
+    output_folder: Optional[str] = "./output"
+    output_folder_historic: Optional[str] = "./output_hist"
+
+    # Enable or disable product outputs
+    publish_roads: bool = True
+    publish_bridges: bool = True
+    publish_inundation: bool = True
+
+    # Enable esrijson output
+    publish_esri_json: bool = False
 
 
 class SQLConfig(BaseModel):
@@ -306,3 +316,15 @@ def fn_write_gdf_to_s3_esrijson(gdf, str_bucket_name, str_s3_key):
 
     print(f"  -- Uploaded ESRI JSON to s3://{str_bucket_name}/{str_s3_key}")
 # ----------------------
+
+
+
+def fn_get_dataframe_from_postgresql(table: str, db: dict) -> pd.DataFrame:
+    conn = psycopg2.connect(**db)
+    cur = conn.cursor()
+    cur.execute(f"SELECT * FROM public.{table}")
+    rows = cur.fetchall()
+    colnames = [desc[0] for desc in cur.description]
+    cur.close()
+    conn.close()
+    return pd.DataFrame(rows, columns=colnames)

@@ -5,7 +5,7 @@ import pandas as pd
 from botocore import UNSIGNED
 from botocore.config import Config
 import psycopg2
-from utils import FASTConfig, load_config, resolve_db_credentials
+from utils import FASTConfig, load_config, resolve_db_credentials, fn_get_dataframe_from_postgresql
 
 
 def fn_get_valid_forecast_group(date_prefix, bucket_name, file_pattern):
@@ -54,17 +54,6 @@ def fn_determine_current_forecast():
         if result:
             return result
     return None
-
-
-def fn_get_dataframe_from_postgresql(table: str, db: dict) -> pd.DataFrame:
-    conn = psycopg2.connect(**db)
-    cur = conn.cursor()
-    cur.execute(f"SELECT * FROM public.{table}")
-    rows = cur.fetchall()
-    colnames = [desc[0] for desc in cur.description]
-    cur.close()
-    conn.close()
-    return pd.DataFrame(rows, columns=colnames)
 
 
 def fn_determine_if_database_current(cfg: FASTConfig, print_output: bool = False) -> bool:

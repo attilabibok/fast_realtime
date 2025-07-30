@@ -301,14 +301,6 @@ def fn_merged_view(cfg: FASTConfig, b_print_output: bool = False):
         # str_s3_bridge_pnt_esri_key = f"{str_publish_sub_folder}bridge_warning_pnts_esrijson.json"
         # fn_write_gdf_to_s3_esrijson(gdf_s_bridge_warning_pnt, cfg.merged_view.s3_output.publish_bucket, str_s3_bridge_pnt_esri_key)
 
-        # --- Write the navigation road lines ---
-        # str_s3_road_nav_ln_key = f"{str_publish_sub_folder}flood_road_nav_ln.geojson"
-        # fn_write_gdf_to_s3(
-        #     gdf_s_flood_road_nav_ln, cfg.merged_view.s3_output.publish_bucket, str_s3_road_nav_ln_key
-        # )
-        # str_s3_road_nav_ln_esri_key = f"{str_publish_sub_folder}flood_road_nav_ln_esrijson.json"
-        # fn_write_gdf_to_s3_esrijson(gdf_s_flood_road_nav_ln, cfg.merged_view.s3_output.publish_bucket, str_s3_road_nav_ln_esri_key)
-
         # --- Write the trimmed road lines ---
         str_s3_road_trim_ln_key = f"{str_publish_sub_folder}flood_road_trim_ln.geojson"
         fn_write_gdf_to_s3(
