@@ -25,6 +25,10 @@ from push_to_s3_04 import fn_push_to_s3
 
 # ************************************************************
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 # ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 def is_valid_file(parser, arg):
@@ -47,9 +51,11 @@ def fn_str_to_bool(value):
     else:
         raise argparse.ArgumentTypeError(f"Boolean value expected. Got '{value}'.")
 
+
 def log_duration(start_time, label):
     elapsed = time.time() - start_time
-    print(f"  -- {label} took: {datetime.timedelta(seconds=int(elapsed))}")
+    logger.info(f"  -- {label} took: {datetime.timedelta(seconds=int(elapsed))}")
+
 
 # +++++++++++++++++++++++++++++
 def fn_fast_realtime_update(
@@ -57,7 +63,6 @@ def fn_fast_realtime_update(
     b_print_output: bool = False,
     b_use_nwm: bool = True,
 ):
-
     step_start = time.time()
     # b_use_nwm = False # use the NWM s3 bucket, if False use KISTERs data assimilation
 
@@ -67,15 +72,14 @@ def fn_fast_realtime_update(
     # supress all warnings
     warnings.filterwarnings("ignore", category=UserWarning)
 
-    print(" ")
-    print("+=================================================================+")
-    print("|                  TxDOT FAST REALTIME UPDATE                     |")
-    print("|                Created by Andy Carter, PE of                    |")
-    print("|             Center for Water and the Environment                |")
-    print("|                 University of Texas at Austin                   |")
-    print("+-----------------------------------------------------------------+")
-    print("  ---(c) INPUT GLOBAL CONFIGURATION FILE: " + str_config_file_path)
-    print("+-----------------------------------------------------------------+")
+    logger.info("+=================================================================+")
+    logger.info("|                  TxDOT FAST REALTIME UPDATE                     |")
+    logger.info("|                Created by Andy Carter, PE of                    |")
+    logger.info("|             Center for Water and the Environment                |")
+    logger.info("|                 University of Texas at Austin                   |")
+    logger.info("+-----------------------------------------------------------------+")
+    logger.info("  ---(c) INPUT GLOBAL CONFIGURATION FILE: " + str_config_file_path)
+    logger.info("+-----------------------------------------------------------------+")
 
     try:
         b_needs_update = fn_determine_if_database_current(
@@ -113,17 +117,14 @@ def fn_fast_realtime_update(
                 fn_push_to_s3(str_config_file_path, b_print_output)
                 log_duration(step_start, "Step 5: Push output to S3")
             elif str_status == "timeout":
-                print(" -- SQL timed out.")
+                logger.error(" -- SQL timed out.")
                 sys.exit(1)
             else:
-                print(" -- SQL failed or config was invalid.")
+                logger.error(" -- SQL failed or config was invalid.")
                 sys.exit(1)
 
-        print("+-----------------------------------------------------------------+")
-
     except Exception as e:
-        print("ERROR: Fast realtime update failed.")
-        print(f"Reason: {str(e)}")
+        logger.error(f"ERROR: Fast realtime update failed.Reason: {str(e)}")
         raise  # re-raise if you want the traceback to bubble up
 
 
@@ -164,11 +165,11 @@ if __name__ == "__main__":
         flt_end_run = time.time()
         flt_time_pass = (flt_end_run - flt_start_run) // 1
         time_pass = datetime.timedelta(seconds=flt_time_pass)
-        print("Compute Time: " + str(time_pass))
+        logger.info("Compute Time: " + str(time_pass))
 
     except Exception as e:
-        print("\n[!] Script execution failed.")
-        print(f"[!] {e}")
+        logger.error("[!] Script execution failed.")
+        logger.error(f"[!] {e}")
         exit(1)  # non-zero exit code indicates error
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

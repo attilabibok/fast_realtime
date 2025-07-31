@@ -8,10 +8,21 @@ import concurrent.futures
 
 # Assuming this is your actual update function
 from fast_realtime_update import fn_str_to_bool
-from utils import load_config
+from utils import load_config, TqdmToLogger
 from fast import run_fast_realtime_update
+import logging
 
-def run_single_update(ini_file: Path, print_output: bool) -> tuple[str, str, float, str]:
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+)
+logger = logging.getLogger(__name__)
+tqdm_logger = TqdmToLogger(logger)
+
+
+def run_single_update(
+    ini_file: Path, print_output: bool
+) -> tuple[str, str, float, str]:
     """Wrap the update function to use in multiprocessing."""
     start = time.time()
     try:
@@ -25,27 +36,31 @@ def run_single_update(ini_file: Path, print_output: bool) -> tuple[str, str, flo
         return (ini_file.name, "failed", duration, tb)
 
 
-def process_all_ini_files_parallel(folder_path: Path, print_output: bool = True, max_workers: int = 4):
+def process_all_ini_files_parallel(
+    folder_path: Path, print_output: bool = True, max_workers: int = 4
+):
     ini_files = sorted(folder_path.glob("*.ini"))
     if not ini_files:
-        print(f"[!] No .ini files found in {folder_path}")
+        logger.error(f"[!] No .ini files found in {folder_path}")
         return
 
-    print(f"[i] Processing 1st file in single-process mode...\n")
+    logger.debug("[i] Processing 1st file in single-process mode...")
     first_ini = ini_files[0]
     name, status, dur, msg = run_single_update(first_ini, print_output)
     duration_str = str(datetime.timedelta(seconds=int(dur)))
     if status == "success":
-        print(f"[✓] Done: {name} | Duration: {duration_str}")
+        logger.info(f"[✓] Done: {name} | Duration: {duration_str}")
     else:
-        print(f"[✗] Failed: {name} | Duration: {duration_str} | Error: {msg}")
+        logger.error(f"[✗] Failed: {name} | Duration: {duration_str} | Error: {msg}")
 
     # Remaining files
     remaining_inis = ini_files[1:]
     if not remaining_inis:
         return
 
-    print(f"\n[i] Processing remaining {len(remaining_inis)} files in parallel using {max_workers} workers...\n")
+    logger.debug(
+        f"[i] Processing remaining {len(remaining_inis)} files in parallel using {max_workers} workers..."
+    )
 
     with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
         futures = [
@@ -53,58 +68,73 @@ def process_all_ini_files_parallel(folder_path: Path, print_output: bool = True,
             for ini_file in remaining_inis
         ]
 
-        for future in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc="Processing"):
+        for future in tqdm(
+            concurrent.futures.as_completed(futures),
+            total=len(futures),
+            desc="Processing",
+            file=tqdm_logger,
+            ncols=25,
+            dynamic_ncols=True,
+            ascii=True,
+        ):
             name, status, dur, msg = future.result()
             duration_str = str(datetime.timedelta(seconds=int(dur)))
             if status == "success":
-                print(f"[✓] Done: {name} | Duration: {duration_str}")
+                logger.info(f"[✓] Done: {name} | Duration: {duration_str}")
             else:
-                print(f"[✗] Failed: {name} | Duration: {duration_str} | Error: {msg}")
+                logger.error(
+                    f"[✗] Failed: {name} | Duration: {duration_str} | Error: {msg}"
+                )
 
-    print(f"[i] Processing statewide file in single-process mode...\n")
+    logger.info("[i] Processing statewide file in single-process mode...")
 
     txfull_config = Path("/fast_realtime/src/config_FULL_hand_linux_DA.ini").resolve()
     name, status, dur, msg = run_single_update(txfull_config, print_output)
     duration_str = str(datetime.timedelta(seconds=int(dur)))
     if status == "success":
-        print(f"[✓] Done: {name} | Duration: {duration_str}")
+        logger.info(f"[✓] Done: {name} | Duration: {duration_str}")
     else:
-        print(f"[✗] Failed: {name} | Duration: {duration_str} | Error: {msg}")
+        logger.error(f"[✗] Failed: {name} | Duration: {duration_str} | Error: {msg}")
+
 
 def process_all_ini_files(folder_path: Path, print_output: bool = True):
     ini_files = list(folder_path.glob("*.ini"))
 
     if not ini_files:
-        print(f"[!] No .ini files found in {folder_path}")
+        logger.error(f"[!] No .ini files found in {folder_path}")
         return
 
     for ini_file in tqdm(ini_files, desc="Processing INI files"):
-        print(f"\n[+] Running: {ini_file.name}")
+        logger.debug(f"[+] Running: {ini_file.name}")
         start = time.time()
 
         try:
             cfg = load_config(str(ini_file))
             run_fast_realtime_update(cfg, print_output)
         except Exception as e:
-            print(f"[!] Failed processing {ini_file.name}: {e}")
+            logger.error(f"[!] Failed processing {ini_file.name}: {e}")
 
         duration = datetime.timedelta(seconds=int(time.time() - start))
-        print(f"[✓] Done: {ini_file.name} | Duration: {duration}")
+        logger.info(f"[✓] Done: {ini_file.name} | Duration: {duration}")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Batch run FAST realtime update for all .ini configs in a folder")
-
-    parser.add_argument(
-        "-f", "--folder",
-        help="Path to folder containing .ini files",
-        type=Path,
-        # required=True,
-        default="./src/txdot_dist_local"
+    parser = argparse.ArgumentParser(
+        description="Batch run FAST realtime update for all .ini configs in a folder"
     )
 
     parser.add_argument(
-        "-r", "--print-output",
+        "-f",
+        "--folder",
+        help="Path to folder containing .ini files",
+        type=Path,
+        # required=True,
+        default="./src/txdot_dist_local",
+    )
+
+    parser.add_argument(
+        "-r",
+        "--print-output",
         help="Print output messages (default: True)",
         type=fn_str_to_bool,
         default=False,
@@ -116,4 +146,4 @@ if __name__ == "__main__":
     # process_all_ini_files(args.folder, args.print_output)
     process_all_ini_files_parallel(args.folder, args.print_output, max_workers=6)
     total_duration = datetime.timedelta(seconds=int(time.time() - total_start))
-    print(f"\n[✓] All .ini files processed in: {total_duration}")
+    logger.info(f"[✓] All .ini files processed in: {total_duration}")

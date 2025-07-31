@@ -28,22 +28,29 @@ import datetime
 import argparse
 from pathlib import Path
 
+import logging
+
+logger = logging.getLogger(__name__)
 from utils import FASTConfig, load_config, resolve_db_credentials
 
 
 def fn_feature_id_list_from_file(path: Path):
     with xr.open_dataset(path) as ds:
-        return list(ds['feature_id'].values)
+        return list(ds["feature_id"].values)
 
 
 def fn_open_and_process_local_dataset(path: Path):
     dataset = xr.open_dataset(path)
-    dataset = dataset.drop_vars(set(dataset.variables) - {'streamflow', 'reference_time'})
+    dataset = dataset.drop_vars(
+        set(dataset.variables) - {"streamflow", "reference_time"}
+    )
     dataset.load()
     return dataset
 
 
-def fn_streamflow_from_list_valid_files(list_valid_files, str_bucket, cache_dir='forecast_cache'):
+def fn_streamflow_from_list_valid_files(
+    list_valid_files, str_bucket, cache_dir="forecast_cache"
+):
     cache_path = Path(cache_dir)
     cache_path.mkdir(parents=True, exist_ok=True)
     fs = s3fs.S3FileSystem(anon=True)
@@ -51,23 +58,28 @@ def fn_streamflow_from_list_valid_files(list_valid_files, str_bucket, cache_dir=
     print("  -- Caching S3 NetCDF files if not already downloaded...")
     local_paths = []
     for s3_key in list_valid_files:
-        filename = s3_key.replace('/', '_')
+        filename = s3_key.replace("/", "_")
         local_file = cache_path / filename
         if not local_file.exists():
-            with fs.open(f'{str_bucket}/{s3_key}', 'rb') as remote_file, open(local_file, 'wb') as out_file:
+            with (
+                fs.open(f"{str_bucket}/{s3_key}", "rb") as remote_file,
+                open(local_file, "wb") as out_file,
+            ):
                 out_file.write(remote_file.read())
         local_paths.append(local_file)
 
     print("  -- Opening datasets in parallel...")
     with concurrent.futures.ProcessPoolExecutor(max_workers=4) as executor:
-        list_datasets = list(executor.map(fn_open_and_process_local_dataset, local_paths))
+        list_datasets = list(
+            executor.map(fn_open_and_process_local_dataset, local_paths)
+        )
 
     feature_id_list = fn_feature_id_list_from_file(local_paths[0])
 
     print("  -- Aggregating forecast data...")
-    ds = xr.concat(list_datasets, dim='time')
-    utc_forecast_time = ds['reference_time'].values
-    numpy_array = ds['streamflow'].values
+    ds = xr.concat(list_datasets, dim="time")
+    utc_forecast_time = ds["reference_time"].values
+    numpy_array = ds["streamflow"].values
     ds.close()
 
     df = pd.DataFrame(numpy_array, columns=feature_id_list)
@@ -76,14 +88,14 @@ def fn_streamflow_from_list_valid_files(list_valid_files, str_bucket, cache_dir=
 
 
 def fn_get_valid_forecast_group(date_prefix, bucket_name, file_pattern):
-    s3 = boto3.client('s3', config=Config(signature_version=UNSIGNED))
-    short_range_prefix = date_prefix + 'short_range/'
+    s3 = boto3.client("s3", config=Config(signature_version=UNSIGNED))
+    short_range_prefix = date_prefix + "short_range/"
     forecast_groups = {}
 
-    paginator = s3.get_paginator('list_objects_v2')
+    paginator = s3.get_paginator("list_objects_v2")
     for page in paginator.paginate(Bucket=bucket_name, Prefix=short_range_prefix):
-        for obj in page.get('Contents', []):
-            key = obj['Key']
+        for obj in page.get("Contents", []):
+            key = obj["Key"]
             match = file_pattern.search(key)
             if match:
                 t_hour = match.group(1)
@@ -100,11 +112,13 @@ def fn_format_flow_table(df, utc_time, feature_ids_path: Path):
     df_feature_ids = pd.read_csv(feature_ids_path)
     columns_to_keep = df_feature_ids.iloc[:, 0].tolist()
     df_filtered = df[columns_to_keep].fillna(0).astype(int).transpose()
-    df_filtered.columns = [f'flow_t{str(i).zfill(2)}' for i in range(df_filtered.shape[1])]
-    df_filtered = df_filtered.reset_index(names='feature_id')
-    df_filtered['model_run_time'] = pd.to_datetime(utc_time[0]).isoformat()
+    df_filtered.columns = [
+        f"flow_t{str(i).zfill(2)}" for i in range(df_filtered.shape[1])
+    ]
+    df_filtered = df_filtered.reset_index(names="feature_id")
+    df_filtered["model_run_time"] = pd.to_datetime(utc_time[0]).isoformat()
     cols = df_filtered.columns.tolist()
-    cols.insert(1, cols.pop(cols.index('model_run_time')))
+    cols.insert(1, cols.pop(cols.index("model_run_time")))
     return df_filtered[cols]
 
 
@@ -119,23 +133,32 @@ def fn_populate_t_flow_forecast_from_NWM(cfg: FASTConfig, b_print_output: bool =
         print("|             Center for Water and the Environment                |")
         print("|                 University of Texas at Austin                   |")
         print("+-----------------------------------------------------------------+")
-        print(f"  ---(c) Loaded config for DB: {cfg.database.dbname} @ {cfg.database.host}")
+        print(
+            f"  ---(c) Loaded config for DB: {cfg.database.dbname} @ {cfg.database.host}"
+        )
         print("===================================================================")
     else:
-        print('Step 1: Fetch NWM Flow Forecast')
+        print("Step 1: Fetch NWM Flow Forecast")
 
     if not cfg.flow_from_nwm:
         raise ValueError("Missing [flow_from_nwm] section in config")
 
     feature_ids_path = Path(cfg.flow_from_nwm.texas_feature_id_list)
 
-    bucket_name = 'noaa-nwm-pds'
-    s3 = boto3.client('s3', config=Config(signature_version=UNSIGNED))
-    response = s3.list_objects_v2(Bucket=bucket_name, Delimiter='/')
-    date_prefixes = sorted([
-        p['Prefix'] for p in response.get('CommonPrefixes', []) if re.match(r'nwm\.\d{8}/', p['Prefix'])
-    ], reverse=True)
-    file_pattern = re.compile(r'nwm\.t(\d{2})z\.short_range\.channel_rt\.f(\d{3})\.conus\.nc')
+    bucket_name = "noaa-nwm-pds"
+    s3 = boto3.client("s3", config=Config(signature_version=UNSIGNED))
+    response = s3.list_objects_v2(Bucket=bucket_name, Delimiter="/")
+    date_prefixes = sorted(
+        [
+            p["Prefix"]
+            for p in response.get("CommonPrefixes", [])
+            if re.match(r"nwm\.\d{8}/", p["Prefix"])
+        ],
+        reverse=True,
+    )
+    file_pattern = re.compile(
+        r"nwm\.t(\d{2})z\.short_range\.channel_rt\.f(\d{3})\.conus\.nc"
+    )
 
     for date_prefix in date_prefixes:
         result = fn_get_valid_forecast_group(date_prefix, bucket_name, file_pattern)
@@ -147,19 +170,21 @@ def fn_populate_t_flow_forecast_from_NWM(cfg: FASTConfig, b_print_output: bool =
     df, utc_time = fn_streamflow_from_list_valid_files(result, bucket_name)
     df_flow_forecast = fn_format_flow_table(df, utc_time, feature_ids_path)
 
-    print('  -- Updating PostgreSQL... (~25 sec)')
+    print("  -- Updating PostgreSQL... (~25 sec)")
     try:
         creds = resolve_db_credentials(cfg.database)
         connection_string = f"postgresql://{creds['user']}:{creds['password']}@{creds['host']}:{creds['port']}/{creds['dbname']}"
         engine = create_engine(connection_string)
-        df_flow_forecast.to_sql('t_flow_forecast', engine, if_exists='replace', index=False)
+        df_flow_forecast.to_sql(
+            "t_flow_forecast", engine, if_exists="replace", index=False
+        )
         print("  -- Data successfully pushed to PostgreSQL")
     except Exception as e:
         print(f" *** Database write failed: {e}")
         raise
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-c", "--config", required=True)
     parser.add_argument("--quiet", action="store_true")
@@ -169,4 +194,4 @@ if __name__ == '__main__':
     start = time.time()
     fn_populate_t_flow_forecast_from_NWM(cfg, b_print_output=not args.quiet)
     end = time.time()
-    print(f"\nCompute Time: {datetime.timedelta(seconds=int(end - start))}")
+    print(f"Compute Time: {datetime.timedelta(seconds=int(end - start))}")

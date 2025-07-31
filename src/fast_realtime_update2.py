@@ -51,7 +51,9 @@ if __name__ == "__main__":
 
         flt_start_run = time.time()
 
-        run_fast_realtime_update(cfg, print_output=not args.get("quiet"), use_nwm=args.get("nwm"))
+        run_fast_realtime_update(
+            cfg, print_output=not args.get("quiet"), use_nwm=args.get("nwm")
+        )
 
         flt_end_run = time.time()
         flt_time_pass = (flt_end_run - flt_start_run) // 1
@@ -59,7 +61,7 @@ if __name__ == "__main__":
         print("Compute Time: " + str(time_pass))
 
     except Exception as e:
-        print("\n[!] Script execution failed.")
+        print("[!] Script execution failed.")
         print(f"[!] {e}")
         exit(1)  # non-zero exit code indicates error
 

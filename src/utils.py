@@ -1,6 +1,6 @@
 from pathlib import Path
 from typing import Optional, Union
-from io import BytesIO
+from aiobotocore.session import get_session
 import configparser
 import json
 import psycopg2
@@ -10,9 +10,12 @@ from configparser import ConfigParser
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 import geopandas as gpd
-import boto3
 import esrijson
 import pandas as pd
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class DatabaseConfig(BaseSettings):
     username: str
@@ -25,7 +28,6 @@ class DatabaseConfig(BaseSettings):
 
 
 class S3APISettings(BaseSettings):
-
     access_key_id: str = ""
     secret_access_key: str = ""
     model_config = SettingsConfigDict(
@@ -63,6 +65,10 @@ class WriteToS3Config(BaseModel):
 
 
 class LocalResultsConfig(BaseModel):
+    publish_live: bool = True
+    publish_historic: bool = True
+
+    # output folders
     output_folder: Optional[str] = "./output"
     output_folder_historic: Optional[str] = "./output_hist"
 
@@ -100,6 +106,21 @@ class FASTConfig(BaseModel):
     write_to_s3: Optional[WriteToS3Config] = None
     local_results: Optional[LocalResultsConfig] = None
     merged_view: Optional[MergedResultsConfig] = None
+
+
+class TqdmToLogger:
+    def __init__(self, logger, level=logging.INFO):
+        self.logger = logger
+        self.level = level
+        self.buffer = ""
+
+    def write(self, message):
+        message = message.strip()
+        if message:
+            self.logger.log(self.level, message)
+
+    def flush(self):
+        pass  # Required for file-like API
 
 
 def merge_nested_dict(base: dict, updates: dict) -> None:
@@ -174,7 +195,7 @@ def resolve_db_credentials(cfg: DatabaseConfig) -> dict:
 def fn_run_sql_script(db_config: dict, sql_file_path: str) -> str:
     try:
         conn = psycopg2.connect(**db_config)
-        print("  -- Connected to the database")
+        logger.debug("  -- Connected to the database")
 
         with open(sql_file_path, "r") as sql_file:
             sql_script = sql_file.read()
@@ -183,13 +204,13 @@ def fn_run_sql_script(db_config: dict, sql_file_path: str) -> str:
         try:
             cursor.execute(sql_script)
             conn.commit()
-            print("  -- SQL script executed successfully")
+            logger.info("  -- SQL script executed successfully")
             return "success"
         except psycopg2.errors.QueryCanceled:
-            print("  !! SQL query exceeded statement_timeout and was canceled")
+            logger.error("  !! SQL query exceeded statement_timeout and was canceled")
             return "timeout"
         except Exception as e:
-            print(f"  !! SQL execution error: {e}")
+            logger.error(f"  !! SQL execution error: {e}")
             return "error"
     finally:
         if "cursor" in locals():
@@ -257,66 +278,68 @@ def fn_write_gdf_to_file(gdf, filepath):
 
     # Write to file as GeoJSON
     gdf.to_file(filepath, driver="GeoJSON")
-    print(f"  -- Saved to {filepath}")
+    logger.info(f"  -- Saved to {filepath}")
 
 
 # ----------------------
 
 
 # ----------------------
-def fn_write_gdf_to_s3(gdf, str_bucket_name, str_s3_key):
-
-    # Convert datetime columns to string format
+async def fn_write_gdf_to_s3(gdf, str_bucket_name: str, str_s3_key: str):
+    # Convert datetime columns
     gdf = gdf.apply(
-        lambda x: (
-            x.dt.strftime("%Y-%m-%dT%H:%M:%S") if x.dtype == "datetime64[ns]" else x
-        )
+        lambda x: x.dt.strftime("%Y-%m-%dT%H:%M:%S")
+        if x.dtype == "datetime64[ns]"
+        else x
     )
 
-    # Convert to GeoJSON in memory ---
-    geojson_buffer = BytesIO()
+    # Convert to GeoJSON
     geojson_str = gdf.to_json()
-    geojson_buffer.write(geojson_str.encode("utf-8"))
-    geojson_buffer.seek(0)
+    geojson_bytes = geojson_str.encode("utf-8")
 
-    # Upload to S3 ---
+    # Upload using aiobotocore
     s3settings = S3APISettings()
-    s3 = boto3.client(
+    session = get_session()
+
+    async with session.create_client(
         "s3",
+        # region_name="us-west-1",  # or wherever your bucket lives
         aws_access_key_id=s3settings.access_key_id,
         aws_secret_access_key=s3settings.secret_access_key,
-    )
-    s3.upload_fileobj(geojson_buffer, str_bucket_name, str_s3_key)
-    print(f"  -- Uploaded to s3://{str_bucket_name}/{str_s3_key}")
+    ) as s3:
+        await s3.put_object(Bucket=str_bucket_name, Key=str_s3_key, Body=geojson_bytes)
+        logger.info(f"  -- Uploaded to s3://{str_bucket_name}/{str_s3_key}")
 
 
 # ----------------------
-def fn_write_gdf_to_s3_esrijson(gdf, str_bucket_name, str_s3_key):
-    # Convert datetime columns to string ISO format
-    gdf = gdf.apply(lambda x: x.dt.strftime('%Y-%m-%dT%H:%M:%S') if x.dtype == 'datetime64[ns]' else x)
+async def fn_write_gdf_to_s3_esrijson(gdf, str_bucket_name: str, str_s3_key: str):
+    gdf = gdf.apply(
+        lambda x: x.dt.strftime("%Y-%m-%dT%H:%M:%S")
+        if x.dtype == "datetime64[ns]"
+        else x
+    )
 
-    # Convert GeoDataFrame to GeoJSON string first
     geojson_str = gdf.to_json()
-
-    # Convert GeoJSON string to Python dict
     geojson_dict = json.loads(geojson_str)
-
-    # Convert GeoJSON dict to ESRI JSON string using esrijson.dumps()
     esri_json_str = esrijson.dumps(geojson_dict)
+    esri_json_bytes = esri_json_str.encode("utf-8")
 
-    # Upload ESRI JSON string to S3
-    geojson_buffer = BytesIO(esri_json_str.encode('utf-8'))
     s3settings = S3APISettings()
-    s3 = boto3.client(
+    session = get_session()
+
+    async with session.create_client(
         "s3",
+        region_name="us-east-1",
         aws_access_key_id=s3settings.access_key_id,
         aws_secret_access_key=s3settings.secret_access_key,
-    )
-    s3.upload_fileobj(geojson_buffer, str_bucket_name, str_s3_key)
+    ) as s3:
+        await s3.put_object(
+            Bucket=str_bucket_name, Key=str_s3_key, Body=esri_json_bytes
+        )
+        logger.info(f"  -- Uploaded ESRI JSON to s3://{str_bucket_name}/{str_s3_key}")
 
-    print(f"  -- Uploaded ESRI JSON to s3://{str_bucket_name}/{str_s3_key}")
+
 # ----------------------
-
 
 
 def fn_get_dataframe_from_postgresql(table: str, db: dict) -> pd.DataFrame:

@@ -1,17 +1,17 @@
 import boto3
 from collections import defaultdict
 from datetime import timezone
-from pathlib import Path
-import os
 import html
 
 BUCKET_NAME = "knatempstorage"
 PREFIX = "fast_historic/nwm/"  # must end with '/' for subfolder
 OUTPUT_HTML = "index.html"
 
+
 # Replace with your desired S3 URL format (e.g., if public or presigned)
 def generate_download_link(bucket, key):
     return f"https://{bucket}.s3.amazonaws.com/{key}"
+
 
 def build_tree_structure(objects):
     tree = lambda: defaultdict(tree)
@@ -26,10 +26,11 @@ def build_tree_structure(objects):
         current[parts[-1]] = {
             "size": obj["Size"],
             "last_modified": obj["LastModified"],
-            "key": obj["Key"]
+            "key": obj["Key"],
         }
 
     return root
+
 
 def render_tree_html(d, bucket):
     def render_node(node, prefix="", is_last=True):
@@ -37,13 +38,17 @@ def render_tree_html(d, bucket):
         items = sorted(node.items())
         for i, (k, v) in enumerate(items):
             is_leaf = isinstance(v, dict) and "key" in v
-            last = (i == len(items) - 1)
+            last = i == len(items) - 1
             branch = "└── " if last else "├── "
             subprefix = prefix + ("    " if last else "│   ")
 
             if is_leaf:
-                size_kb = v['size'] / 1024
-                date = v['last_modified'].astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+                size_kb = v["size"] / 1024
+                date = (
+                    v["last_modified"]
+                    .astimezone(timezone.utc)
+                    .strftime("%Y-%m-%d %H:%M:%S UTC")
+                )
                 download_link = generate_download_link(bucket, v["key"])
                 html_parts.append(
                     f'<li class="file-row">'
@@ -52,31 +57,26 @@ def render_tree_html(d, bucket):
                     f'<span class="file-size">{size_kb:.1f} KB</span>'
                     f'<span class="file-date">{date}</span>'
                     f'<a class="file-download" href="{download_link}" target="_blank" title="Download">💾</a>'
-                    f'</li>'
+                    f"</li>"
                 )
 
             else:
                 html_parts.append(
-                    f'<li><details open><summary>'
+                    f"<li><details open><summary>"
                     f'<span class="tree-line">{html.escape(prefix + branch)}</span>'
                     f'<span class="folder">{html.escape(k)}</span>'
-                    f'</summary><ul>'
+                    f"</summary><ul>"
                 )
                 html_parts.append(render_node(v, subprefix, last))
-                html_parts.append('</ul></details></li>')
+                html_parts.append("</ul></details></li>")
         return "\n".join(html_parts)
 
     return f"<ul class='tree'>{render_node(d)}</ul>"
 
 
-
 def list_s3_objects(bucket, prefix):
-    s3 = boto3.client(
-        "s3",
-        aws_access_key_id="",
-        aws_secret_access_key=""
-    )
-    paginator = s3.get_paginator('list_objects_v2')
+    s3 = boto3.client("s3", aws_access_key_id="", aws_secret_access_key="")
+    paginator = s3.get_paginator("list_objects_v2")
     result = []
     for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
         result.extend(page.get("Contents", []))
@@ -169,4 +169,6 @@ def generate_html(bucket, prefix, output_html):
 
 
 if __name__ == "__main__":
+    # generate the index html
     generate_html(BUCKET_NAME, PREFIX, OUTPUT_HTML)
+    # Optional upload to S3
