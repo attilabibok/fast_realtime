@@ -50,13 +50,13 @@ else
 fi
 
 # Run alter_tables.sh before setting up TXFull
-echo "Running table alterations to include primary key..."
+echo "Running table alterations to include primary key, add workflow_id etc..."
 bash "/postgres_init/alter_existing_dyn_tables.sh"
 
 # Run SQL scripts in TXFull
 echo "Running SQL scripts in TXFull..."
 psql -h postgis -U admin -d TXFull -f /postgres_init/create_foreign_data_views.sql
-psql -h postgis -U admin -d TXFull -f /postgres_init/create_merged_view.sql
+# psql -h postgis -U admin -d TXFull -f /postgres_init/create_merged_view.sql
 psql -h postgis -U admin -d TXFull -f /postgres_init/create_merged_materialized_view.sql
 
 echo "TXFull database setup completed."

@@ -1,11 +1,10 @@
-import boto3
+import asyncio
+import tempfile
 from collections import defaultdict
 from datetime import timezone
+from aiobotocore.session import get_session
 import html
-
-BUCKET_NAME = "knatempstorage"
-PREFIX = "fast_historic/nwm/"  # must end with '/' for subfolder
-OUTPUT_HTML = "index.html"
+from utils import S3APISettings
 
 
 # Replace with your desired S3 URL format (e.g., if public or presigned)
@@ -55,7 +54,7 @@ def render_tree_html(d, bucket):
                     f'<span class="tree-line">{html.escape(prefix + branch)}</span>'
                     f'<span class="file-name">{html.escape(k)}</span>'
                     f'<span class="file-size">{size_kb:.1f} KB</span>'
-                    f'<span class="file-date">{date}</span>'
+                    f'<span class="file-date" data-timestamp="{v["last_modified"].isoformat()}">{date}</span>'
                     f'<a class="file-download" href="{download_link}" target="_blank" title="Download">💾</a>'
                     f"</li>"
                 )
@@ -63,9 +62,10 @@ def render_tree_html(d, bucket):
             else:
                 html_parts.append(
                     f"<li><details open><summary>"
+                    f'<div style="display: flex; align-items: center;">'
                     f'<span class="tree-line">{html.escape(prefix + branch)}</span>'
                     f'<span class="folder">{html.escape(k)}</span>'
-                    f"</summary><ul>"
+                    f"</div></summary><ul>"
                 )
                 html_parts.append(render_node(v, subprefix, last))
                 html_parts.append("</ul></details></li>")
@@ -74,17 +74,30 @@ def render_tree_html(d, bucket):
     return f"<ul class='tree'>{render_node(d)}</ul>"
 
 
-def list_s3_objects(bucket, prefix):
-    s3 = boto3.client("s3", aws_access_key_id="", aws_secret_access_key="")
-    paginator = s3.get_paginator("list_objects_v2")
-    result = []
-    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
-        result.extend(page.get("Contents", []))
-    return result
+async def list_s3_objects(bucket: str, prefix: str):
+    s3settings = S3APISettings()
+    session = get_session()
+
+    async with session.create_client(
+        "s3",
+        region_name="us-east-1",
+        aws_access_key_id=s3settings.access_key_id,
+        aws_secret_access_key=s3settings.secret_access_key,
+    ) as s3:
+        paginator = s3.get_paginator("list_objects_v2")
+        result = []
+        async for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+            result.extend(page.get("Contents", []))
+        return result
 
 
-def generate_html(bucket, prefix, output_html):
-    objects = list_s3_objects(bucket, prefix)
+async def generate_html(
+    bucket: str, prefix: str, output_html: str = None, s3_upload: bool = True
+):
+    s3settings = S3APISettings()
+    session = get_session()
+
+    objects = await list_s3_objects(bucket, prefix)
     tree = build_tree_structure(objects)
     subtree = tree
     for part in prefix.strip("/").split("/"):
@@ -111,14 +124,21 @@ def generate_html(bucket, prefix, output_html):
         content: '';
     }}
     details summary {{
+        display: flex;
+        align-items: center;
         cursor: pointer;
         list-style: none;
         outline: none;
+        padding-left: 0;
+    }}
+
+    details > ul {{
+        padding-left: 1.8em;
     }}
     .folder {{
         font-weight: bold;
         color: #2a52be;
-    }}
+    }}  
     .file-row {{
         display: grid;
         grid-template-columns: 2em 440px 100px 220px 2em;
@@ -147,6 +167,22 @@ def generate_html(bucket, prefix, output_html):
         color: #777;
         font-size: 0.9em;
     }}
+    .file-row {{
+        display: grid;
+        grid-template-columns: 2em 440px 100px 220px 140px 2em;
+        gap: 0.5em;
+        align-items: center;
+        margin: 2px 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }}
+
+    .file-age {{
+        color: #999;
+        text-align: right;
+        font-size: 0.9em;
+    }}
     .file-download {{
         text-align: center;
         text-decoration: none;
@@ -159,16 +195,97 @@ def generate_html(bucket, prefix, output_html):
 </head>
 <body>
     <h2>Files in s3://{bucket}/{prefix}</h2>
+    <div class="file-header">
+        <span></span>
+        <span>File</span>
+        <span style="text-align: right;">Size</span>
+        <span style="text-align: left;">Date</span>
+        <span style="text-align: right;">Age</span>
+        <span style="text-align: center;">Download</span>
+    </div>
     {body}
+    <script>
+    function formatAge(timestamp) {{
+        const now = new Date();
+        const fileDate = new Date(timestamp);
+        const diffMs = now - fileDate;
+
+        const minutes = Math.floor(diffMs / 60000);
+        const hours = Math.floor(minutes / 60);
+        const days = Math.floor(hours / 24);
+
+        if (days > 0) return `${{days}}d ${{hours % 24}}h`;
+        if (hours > 0) return `${{hours}}h ${{minutes % 60}}m`;
+        return `${{minutes}}m`;
+    }}
+
+    document.querySelectorAll(".file-date").forEach(el => {{
+        const ts = el.dataset.timestamp;
+        const ageSpan = document.createElement("span");
+        ageSpan.className = "file-age";
+        ageSpan.textContent = formatAge(ts);
+        el.parentElement.insertBefore(ageSpan, el.nextSibling);
+    }});
+    </script>
 </body>
 </html>"""
 
-    with open(output_html, "w", encoding="utf-8") as f:
-        f.write(html_str)
-    print(f"HTML saved to {output_html}")
+    if output_html is None:
+        with tempfile.NamedTemporaryFile(
+            delete=False, suffix=".html", mode="w", encoding="utf-8"
+        ) as tmp:
+            tmp.write(html_str)
+            output_html = tmp.name
+    else:
+        with open(output_html, "w", encoding="utf-8") as f:
+            f.write(html_str)
 
+    if s3_upload:
+        async with session.create_client(
+            "s3",
+            region_name="us-west-1",
+            aws_access_key_id=s3settings.access_key_id,
+            aws_secret_access_key=s3settings.secret_access_key,
+        ) as s3:
+            await s3.put_object(
+                Bucket=bucket,
+                Key=f"{prefix.rstrip('/')}/{output_html}",
+                Body=html_str.encode("utf-8"),
+                ContentType="text/html",
+                CacheControl="max-age=300"
+            )
+
+    return output_html
+
+
+# async def upload_html_to_s3(file_bytes: bytes, bucket: str, key: str):
+#     s3settings = S3APISettings()
+#     session = get_session()
+#     async with session.create_client(
+#         "s3",
+#         region_name="us-west-1",
+#         aws_access_key_id=s3settings.access_key_id,
+#         aws_secret_access_key=s3settings.secret_access_key,
+#     ) as s3:
+#         await s3.put_object(
+#             Bucket=bucket,
+#             Key=key,
+#             Body=file_bytes,
+#             ContentType="text/html",
+#             CacheControl="max-age=3600",
+#             ACL="public-read"
+#         )
+
+
+BUCKET_NAME = "knatempstorage"
+PREFIX = "fast_historic/da/"  # must end with '/' for subfolder
+OUTPUT_HTML = "index.html"
 
 if __name__ == "__main__":
     # generate the index html
-    generate_html(BUCKET_NAME, PREFIX, OUTPUT_HTML)
+    asyncio.run(
+        generate_html(
+            bucket=BUCKET_NAME, prefix=PREFIX, output_html=OUTPUT_HTML, s3_upload=True
+        )
+    )
     # Optional upload to S3

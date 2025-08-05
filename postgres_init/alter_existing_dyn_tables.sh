@@ -28,6 +28,13 @@ databases=(
   25_CHS_realtime_hand
 )
 
+fix_dbs=(
+  05_LBB_realtime_hand
+  06_ODA_realtime_hand
+  15_SAT_realtime_hand
+  22_LRD_realtime_hand
+)
+
 HOST=postgis
 PORT=5432
 USER=admin
@@ -38,9 +45,98 @@ for db in "${databases[@]}"; do
   echo "Applying changes to $db..."
 
   psql -h "$HOST" -p "$PORT" -U "$USER" -d "$db" -v ON_ERROR_STOP=1 <<'EOF'
--- Add primary key to s_flood_merge_ar if safe
+
+-- ===============================
+-- TYPE FIX: convert text types to numeric in 5,6,16,22
+-- ===============================
+
 DO $$
+DECLARE
+    col RECORD;
 BEGIN
+    FOR col IN
+        SELECT column_name, data_type
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 's_bridge_warning_pnt'
+          AND column_name IN (
+              'is_overtop', 'max_wse', 'min_dist_to_low_ch',
+              'min_ground', 'min_low_ch', 'min_overtop'
+          )
+    LOOP
+        BEGIN
+            IF col.column_name = 'is_overtop' AND col.data_type != 'bigint' THEN
+                EXECUTE 'ALTER TABLE public.s_bridge_warning_pnt ALTER COLUMN is_overtop TYPE bigint USING is_overtop::bigint';
+            ELSIF col.column_name = 'max_wse' AND col.data_type != 'double precision' THEN
+                EXECUTE 'ALTER TABLE public.s_bridge_warning_pnt ALTER COLUMN max_wse TYPE double precision USING max_wse::double precision';
+            ELSIF col.column_name = 'min_dist_to_low_ch' AND col.data_type != 'double precision' THEN
+                EXECUTE 'ALTER TABLE public.s_bridge_warning_pnt ALTER COLUMN min_dist_to_low_ch TYPE double precision USING min_dist_to_low_ch::double precision';
+            ELSIF col.column_name = 'min_ground' AND col.data_type != 'double precision' THEN
+                EXECUTE 'ALTER TABLE public.s_bridge_warning_pnt ALTER COLUMN min_ground TYPE double precision USING min_ground::double precision';
+            ELSIF col.column_name = 'min_low_ch' AND col.data_type != 'double precision' THEN
+                EXECUTE 'ALTER TABLE public.s_bridge_warning_pnt ALTER COLUMN min_low_ch TYPE double precision USING min_low_ch::double precision';
+            ELSIF col.column_name = 'min_overtop' AND col.data_type != 'double precision' THEN
+                EXECUTE 'ALTER TABLE public.s_bridge_warning_pnt ALTER COLUMN min_overtop TYPE double precision USING min_overtop::double precision';
+            END IF;
+        EXCEPTION WHEN OTHERS THEN
+            RAISE NOTICE '⚠️ [%] Could not alter column %: %', current_database(), col.column_name, SQLERRM;
+        END;
+    END LOOP;
+END $$;
+
+
+-- ===============================
+-- Add workflow_id to the tables
+-- ===============================
+DO $$
+DECLARE
+  tbl TEXT;
+  input_tables TEXT[] := ARRAY[
+    't_flow_forecast',
+    't_nextgen_to_nwm',
+    't_road_flood_trigger',
+    's_flood_inundation_ar',
+    's_road_segment_ln'
+  ];
+  output_tables TEXT[] := ARRAY[
+    't_flow_per_nextgen',
+    's_bridge_warning_pnt',
+    's_selected_flood_ar',
+    's_flood_road_ln',
+    's_flood_grid_ar',
+    's_flood_merge_by_tile_ar',
+    's_flood_road_ln_tile',
+    's_flood_road_trim_ln',
+    's_flood_merge_ar',
+    't_current_forecast'
+  ];
+BEGIN
+  -- Add workflow_id to input tables
+  FOREACH tbl IN ARRAY input_tables LOOP
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns 
+      WHERE table_name = tbl AND column_name = 'workflow_id' AND table_schema = 'public'
+    ) THEN
+      EXECUTE format('ALTER TABLE public.%I ADD COLUMN workflow_id TEXT DEFAULT ''default'';', tbl);
+      EXECUTE format('UPDATE public.%I SET workflow_id = ''default'' WHERE workflow_id IS NULL;', tbl);
+    END IF;
+  END LOOP;
+
+  -- Add workflow_id to output tables
+  FOREACH tbl IN ARRAY output_tables LOOP
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns 
+      WHERE table_name = tbl AND column_name = 'workflow_id' AND table_schema = 'public'
+    ) THEN
+      EXECUTE format('ALTER TABLE public.%I ADD COLUMN workflow_id TEXT DEFAULT ''default'';', tbl);
+      EXECUTE format('UPDATE public.%I SET workflow_id = ''default'' WHERE workflow_id IS NULL;', tbl);
+    END IF;
+  END LOOP;
+
+-- ===============================
+-- Add primary keys to make a compatible WFS source
+-- ===============================
+  -- Add primary keys if safe
   IF EXISTS (
     SELECT 1 FROM information_schema.columns
     WHERE table_name = 's_flood_merge_ar' AND column_name = 'tile_id'
@@ -50,11 +146,7 @@ BEGIN
   ) THEN
     EXECUTE 'ALTER TABLE s_flood_merge_ar ADD CONSTRAINT s_flood_merge_ar_pkey PRIMARY KEY (tile_id)';
   END IF;
-END$$;
 
--- Add primary key to s_flood_road_ln if safe
-DO $$
-BEGIN
   IF EXISTS (
     SELECT 1 FROM information_schema.columns
     WHERE table_name = 's_flood_road_ln' AND column_name = 'tile_id'
@@ -64,11 +156,8 @@ BEGIN
   ) THEN
     EXECUTE 'ALTER TABLE s_flood_road_ln ADD CONSTRAINT s_flood_road_ln_pkey PRIMARY KEY (tile_id)';
   END IF;
-END$$;
 
--- Add GIST geometry indexes if missing
-DO $$
-BEGIN
+  -- Create GIST indexes if missing
   IF NOT EXISTS (
     SELECT 1 FROM pg_indexes WHERE indexname = 'idx_s_flood_merge_ar_geom'
   ) THEN
@@ -92,11 +181,8 @@ BEGIN
   ) THEN
     EXECUTE 'CREATE INDEX idx_s_flood_road_trim_ln_geom ON s_flood_road_trim_ln USING GIST (geometry)';
   END IF;
-END$$;
 
--- Add B-tree indexes for tile_id or other columns where helpful
-DO $$
-BEGIN
+  -- Create B-tree indexes if helpful
   IF NOT EXISTS (
     SELECT 1 FROM pg_indexes WHERE indexname = 'idx_s_flood_road_ln_tile_tile_id'
   ) THEN
@@ -115,18 +201,27 @@ BEGIN
     EXECUTE 'CREATE INDEX idx_t_flow_per_nextgen_nextgen_id ON t_flow_per_nextgen (nextgen_id)';
   END IF;
 
+  -- Create indexes for t_flow_forecast
   IF NOT EXISTS (
     SELECT 1 FROM pg_indexes WHERE indexname = 'idx_t_flow_forecast_feature_id'
   ) THEN
-    EXECUTE 'CREATE INDEX idx_t_flow_forecast_feature_id ON t_flow_forecast (feature_id)';
+    EXECUTE 'CREATE INDEX idx_t_flow_forecast_feature_id ON public.t_flow_forecast (feature_id)';
   END IF;
 
   IF NOT EXISTS (
     SELECT 1 FROM pg_indexes WHERE indexname = 'idx_t_flow_forecast_model_run_time'
   ) THEN
-    EXECUTE 'CREATE INDEX idx_t_flow_forecast_model_run_time ON t_flow_forecast (model_run_time)';
+    EXECUTE 'CREATE INDEX idx_t_flow_forecast_model_run_time ON public.t_flow_forecast (model_run_time)';
   END IF;
-END$$;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes WHERE indexname = 'idx_t_flow_forecast_workflow_id'
+  ) THEN
+    EXECUTE 'CREATE INDEX idx_t_flow_forecast_workflow_id ON public.t_flow_forecast (workflow_id)';
+  END IF;
+
+END $$;
+
 EOF
 
   echo "Done with $db"

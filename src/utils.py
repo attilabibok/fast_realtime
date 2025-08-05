@@ -16,7 +16,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-
 class DatabaseConfig(BaseSettings):
     username: str
     password: Optional[str] = None  # resolved at runtime
@@ -28,6 +27,7 @@ class DatabaseConfig(BaseSettings):
 
 
 class S3APISettings(BaseSettings):
+
     access_key_id: str = ""
     secret_access_key: str = ""
     model_config = SettingsConfigDict(
@@ -83,6 +83,7 @@ class LocalResultsConfig(BaseModel):
 
 class SQLConfig(BaseModel):
     sql_file_path: str = "sql/roadflood_create_dynamic_tables_big.sql"
+    workflow_id: str = Field(default="default")
     # local_output: Optional[LocalResultsConfig] = None
     # s3_output: Optional[WriteToS3Config] = None
 
@@ -108,6 +109,7 @@ class FASTConfig(BaseModel):
     merged_view: Optional[MergedResultsConfig] = None
 
 
+
 class TqdmToLogger:
     def __init__(self, logger, level=logging.INFO):
         self.logger = logger
@@ -121,7 +123,6 @@ class TqdmToLogger:
 
     def flush(self):
         pass  # Required for file-like API
-
 
 def merge_nested_dict(base: dict, updates: dict) -> None:
     for key, value in updates.items():
@@ -192,7 +193,7 @@ def resolve_db_credentials(cfg: DatabaseConfig) -> dict:
     }
 
 
-def fn_run_sql_script(db_config: dict, sql_file_path: str) -> str:
+def fn_run_sql_script(db_config: dict, sql_file_path: str, params: dict = None) -> str:
     try:
         conn = psycopg2.connect(**db_config)
         logger.debug("  -- Connected to the database")
@@ -202,7 +203,8 @@ def fn_run_sql_script(db_config: dict, sql_file_path: str) -> str:
 
         cursor = conn.cursor()
         try:
-            cursor.execute(sql_script)
+            workflow_id = (params or {}).get("workflow_id", "default") # this si crucial to separate results from different sreamflow sources
+            cursor.execute(sql_script, {"workflow_id": workflow_id})
             conn.commit()
             logger.info("  -- SQL script executed successfully")
             return "success"
@@ -286,11 +288,10 @@ def fn_write_gdf_to_file(gdf, filepath):
 
 # ----------------------
 async def fn_write_gdf_to_s3(gdf, str_bucket_name: str, str_s3_key: str):
+
     # Convert datetime columns
     gdf = gdf.apply(
-        lambda x: x.dt.strftime("%Y-%m-%dT%H:%M:%S")
-        if x.dtype == "datetime64[ns]"
-        else x
+        lambda x: x.dt.strftime("%Y-%m-%dT%H:%M:%S") if x.dtype == "datetime64[ns]" else x
     )
 
     # Convert to GeoJSON
@@ -310,14 +311,10 @@ async def fn_write_gdf_to_s3(gdf, str_bucket_name: str, str_s3_key: str):
         await s3.put_object(Bucket=str_bucket_name, Key=str_s3_key, Body=geojson_bytes)
         logger.info(f"  -- Uploaded to s3://{str_bucket_name}/{str_s3_key}")
 
-
 # ----------------------
 async def fn_write_gdf_to_s3_esrijson(gdf, str_bucket_name: str, str_s3_key: str):
-    gdf = gdf.apply(
-        lambda x: x.dt.strftime("%Y-%m-%dT%H:%M:%S")
-        if x.dtype == "datetime64[ns]"
-        else x
-    )
+
+    gdf = gdf.apply(lambda x: x.dt.strftime("%Y-%m-%dT%H:%M:%S") if x.dtype == "datetime64[ns]" else x)
 
     geojson_str = gdf.to_json()
     geojson_dict = json.loads(geojson_str)
@@ -333,21 +330,22 @@ async def fn_write_gdf_to_s3_esrijson(gdf, str_bucket_name: str, str_s3_key: str
         aws_access_key_id=s3settings.access_key_id,
         aws_secret_access_key=s3settings.secret_access_key,
     ) as s3:
-        await s3.put_object(
-            Bucket=str_bucket_name, Key=str_s3_key, Body=esri_json_bytes
-        )
+        await s3.put_object(Bucket=str_bucket_name, Key=str_s3_key, Body=esri_json_bytes)
         logger.info(f"  -- Uploaded ESRI JSON to s3://{str_bucket_name}/{str_s3_key}")
-
 
 # ----------------------
 
 
-def fn_get_dataframe_from_postgresql(table: str, db: dict) -> pd.DataFrame:
+
+def fn_get_dataframe_from_postgresql(table: str, db: dict, workflow_id: str = "default") -> pd.DataFrame:
     conn = psycopg2.connect(**db)
     cur = conn.cursor()
-    cur.execute(f"SELECT * FROM public.{table}")
-    rows = cur.fetchall()
-    colnames = [desc[0] for desc in cur.description]
-    cur.close()
-    conn.close()
-    return pd.DataFrame(rows, columns=colnames)
+    try:
+        query = f"SELECT * FROM public.{table} WHERE workflow_id = %s"
+        cur.execute(query, (workflow_id,))
+        rows = cur.fetchall()
+        colnames = [desc[0] for desc in cur.description]
+        return pd.DataFrame(rows, columns=colnames)
+    finally:
+        cur.close()
+        conn.close()

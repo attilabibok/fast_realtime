@@ -13,7 +13,6 @@ import datetime
 import warnings
 
 import logging
-
 logger = logging.getLogger(__name__)
 
 
@@ -21,15 +20,10 @@ def log_duration(start: float, label: str):
     elapsed = time.time() - start
     logger.debug(f" {label} took: {datetime.timedelta(seconds=int(elapsed))}")
 
-
-def run_fast_realtime_update(
-    cfg: FASTConfig, print_output: bool = False, use_nwm: bool = True
-):
+def run_fast_realtime_update(cfg: FASTConfig, print_output: bool = False, use_nwm: bool = True):
     warnings.filterwarnings("ignore", category=UserWarning)
     logger.info("+==================== FAST REALTIME ====================+")
-    logger.info(
-        f"  -- DB: {cfg.database.dbname} @ {cfg.database.host}:{cfg.database.port}"
-    )
+    logger.info(f"  -- DB: {cfg.database.dbname} @ {cfg.database.host}:{cfg.database.port}")
     logger.info("+------------------------------------------------------+")
 
     step_start = time.time()
@@ -41,9 +35,7 @@ def run_fast_realtime_update(
     # needs_update = True # FIXME: delete when deployed
     log_duration(step_start, "Step 1: Check for update")
 
-    if (cfg.flow_from_nwm and cfg.flow_from_nwm.force) or (
-        cfg.download and cfg.download.force
-    ):
+    if (cfg.flow_from_nwm and cfg.flow_from_nwm.force) or (cfg.download and cfg.download.force):
         enforce_update = True
         logger.info("Update is enforced by the 'force' variable in the config")
 
@@ -64,7 +56,7 @@ def run_fast_realtime_update(
             result = fn_run_sql_udpate_dynamic_tables(cfg, print_output)
             log_duration(step_start, "Step 3: Run SQL update")
 
-            if result == "success":
+            if result == 'success':
                 step_start = time.time()
                 if cfg.bridge_warnings.enabled:
                     fn_create_s_bridge_warning_pnt(cfg, print_output)
@@ -80,7 +72,7 @@ def run_fast_realtime_update(
                     step_start = time.time()
                     log_duration(step_start, "Step 5: Publishing- SKIPPED !!!")
 
-            elif result == "timeout":
+            elif result == 'timeout':
                 raise TimeoutError("SQL execution timed out")
             else:
                 raise RuntimeError("SQL step failed")
@@ -94,3 +86,4 @@ def run_fast_realtime_update(
         step_start = time.time()
         asyncio.run(fn_merged_view(cfg, print_output))
         log_duration(step_start, "Step 6: Merged view")
+

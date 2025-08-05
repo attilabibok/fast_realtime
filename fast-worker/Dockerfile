@@ -77,6 +77,5 @@ RUN echo "Rebuilt at $(date)" > /fast_realtime/last_built.txt
 # Set working directory
 WORKDIR /fast_realtime/src
 
-
 # Default command
 CMD ["python", "fast_realtime_update.py", "-c", "config_realtime_linux.ini"]

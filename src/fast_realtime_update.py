@@ -26,9 +26,7 @@ from push_to_s3_04 import fn_push_to_s3
 # ************************************************************
 
 import logging
-
 logger = logging.getLogger(__name__)
-
 
 # ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 def is_valid_file(parser, arg):
@@ -51,11 +49,9 @@ def fn_str_to_bool(value):
     else:
         raise argparse.ArgumentTypeError(f"Boolean value expected. Got '{value}'.")
 
-
 def log_duration(start_time, label):
     elapsed = time.time() - start_time
     logger.info(f"  -- {label} took: {datetime.timedelta(seconds=int(elapsed))}")
-
 
 # +++++++++++++++++++++++++++++
 def fn_fast_realtime_update(
@@ -63,6 +59,7 @@ def fn_fast_realtime_update(
     b_print_output: bool = False,
     b_use_nwm: bool = True,
 ):
+
     step_start = time.time()
     # b_use_nwm = False # use the NWM s3 bucket, if False use KISTERs data assimilation
 

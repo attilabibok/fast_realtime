@@ -16,6 +16,7 @@ import asyncio
 import time
 import datetime
 import warnings
+import pandas as pd
 from utils import (
     FASTConfig,
     load_config,
@@ -23,15 +24,12 @@ from utils import (
     fn_get_geodataframe_from_postgresql,
     fn_write_gdf_to_file,
     fn_write_gdf_to_s3,
-    fn_write_gdf_to_s3_esrijson,
-    fn_get_dataframe_from_postgresql,
+    fn_write_gdf_to_s3_esrijson,fn_get_dataframe_from_postgresql
 )
 
 import logging
-
 logger = logging.getLogger(__name__)
 # ************************************************************
-
 
 # ----------------------
 # ----------------
@@ -58,28 +56,14 @@ async def fn_push_to_s3(cfg: FASTConfig, b_print_output: bool):
     warnings.filterwarnings("ignore", category=RuntimeWarning)
 
     if b_print_output:
-        logger.info(
-            "+=================================================================+"
-        )
-        logger.info(
-            "|                   PUSH FAST LAYERS TO S3                        |"
-        )
-        logger.info(
-            "|                Created by Andy Carter, PE of                    |"
-        )
-        logger.info(
-            "|             Center for Water and the Environment                |"
-        )
-        logger.info(
-            "|                 University of Texas at Austin                   |"
-        )
-        logger.info(
-            "+-----------------------------------------------------------------+"
-        )
+        logger.info("+=================================================================+")
+        logger.info("|                   PUSH FAST LAYERS TO S3                        |")
+        logger.info("|                Created by Andy Carter, PE of                    |")
+        logger.info("|             Center for Water and the Environment                |")
+        logger.info("|                 University of Texas at Austin                   |")
+        logger.info("+-----------------------------------------------------------------+")
         logger.info("  ---[r] PRINT OUTPUT: " + str(b_print_output))
-        logger.info(
-            "==================================================================="
-        )
+        logger.info("===================================================================")
     else:
         logger.info("Step 4: Uploading FAST Layers to S3")
 
@@ -87,6 +71,7 @@ async def fn_push_to_s3(cfg: FASTConfig, b_print_output: bool):
 
     str_publish_sub_folder = ""
     if cfg.write_to_s3:
+
         # Handle optional publish_sub_folder
         str_publish_sub_folder = cfg.write_to_s3.publish_sub_folder.strip()
         if str_publish_sub_folder and not str_publish_sub_folder.endswith("/"):
@@ -115,9 +100,21 @@ async def fn_push_to_s3(cfg: FASTConfig, b_print_output: bool):
 
     # Get model runtime for sure. do not rely on non-empty results.
     db_conn_info = resolve_db_credentials(cfg.database)
-    df_current = fn_get_dataframe_from_postgresql("t_current_forecast", db_conn_info)
-    model_run_time = df_current.iloc[0]["model_run_time"].tz_localize("UTC")
+    df_current = fn_get_dataframe_from_postgresql('t_current_forecast', db_conn_info)
+    # model_run_time = df_current.iloc[0]['model_run_time'].tz_localize("UTC")
+    raw_value = df_current.iloc[0]['model_run_time']
+    model_run_time = pd.to_datetime(raw_value, errors='coerce')
+
+    if model_run_time is pd.NaT:
+        raise ValueError(f"Invalid datetime format: {raw_value}")
+
+    # Ensure it's timezone-aware in UTC
+    if model_run_time.tzinfo is None:
+        model_run_time = model_run_time.tz_localize("UTC")
+    else:
+        model_run_time = model_run_time.tz_convert("UTC")
     str_model_runtime = model_run_time.strftime("%Y%m%d%H%M")
+
 
     geometry_fake_area = Polygon(
         [
@@ -131,31 +128,39 @@ async def fn_push_to_s3(cfg: FASTConfig, b_print_output: bool):
         # raise ValueError("s_flood_merge_ar is empty — no model_run_time to extract.")
 
         gdf_s_flood_merge_ar = gpd.GeoDataFrame(
-            [
-                {
-                    "tile_id": 0,
-                    "geometry": geometry_fake_area,
-                    "model_run_time": str(model_run_time),
-                    "is_real": 0,
-                }
-            ],
+            [{
+                "tile_id": 0,
+                "geometry": geometry_fake_area,
+                "model_run_time": str(model_run_time),
+                "is_real": 0
+            }],
             geometry="geometry",
-            crs="EPSG:4326",
+            crs="EPSG:4326"
         )
     else:
-        model_run_time = gdf_s_flood_merge_ar.iloc[0]["model_run_time"]
+        raw_value = df_current.iloc[0]['model_run_time']
+        model_run_time = pd.to_datetime(raw_value, errors='coerce')
+
+        if model_run_time is pd.NaT:
+            raise ValueError(f"Invalid datetime format: {raw_value}")
+
+        # Ensure it's timezone-aware in UTC
+        if model_run_time.tzinfo is None:
+            model_run_time = model_run_time.tz_localize("UTC")
+        else:
+            model_run_time = model_run_time.tz_convert("UTC")
+
 
         if gdf_s_flood_merge_ar.iloc[0]["geometry"] is None:
             gdf_s_flood_merge_ar.at[gdf_s_flood_merge_ar.index[0], "geometry"] = (
                 geometry_fake_area
             )
             gdf_s_flood_merge_ar["is_real"] = 0
-            gdf_s_flood_merge_ar["is_real"] = gdf_s_flood_merge_ar["is_real"].astype(
-                int
-            )
+            gdf_s_flood_merge_ar["is_real"] = gdf_s_flood_merge_ar["is_real"].astype(int)
 
     # -- If empty, create a AGOL placeholder for road lines
     if gdf_s_flood_road_trim_ln.empty:
+
         geometry_fake_line = MultiLineString(
             [[(-97.793186, 30.547194), (-97.7892304, 30.5487087)]]
         )
@@ -181,8 +186,10 @@ async def fn_push_to_s3(cfg: FASTConfig, b_print_output: bool):
             dict_empty_road_data, crs="EPSG:4326"
         )
 
+
     # -- If empty, create a AGOL placeholder for bridge warning points
     if gdf_s_bridge_warning_pnt.empty:
+
         geometry_fake_point = Point(-97.793186, 30.547194)
 
         # Define placeholder attributes
@@ -250,7 +257,7 @@ async def fn_push_to_s3(cfg: FASTConfig, b_print_output: bool):
         local_output_folder_hist = cfg.local_results.output_folder_historic
 
         if cfg.local_results.publish_bridges:
-            if cfg.local_results.publish_live:  # live results
+            if cfg.local_results.publish_live: # live results
                 str_bridge_pnt_key = (
                     f"{local_output_folder}/bridge_warning_pnts.geojson"
                 )
@@ -260,8 +267,11 @@ async def fn_push_to_s3(cfg: FASTConfig, b_print_output: bool):
                 #     str_bridge_pnt_esri_key = f"{local_output_folder}bridge_warning_pnts_esrijson.json"
                 #     fn_write_gdf_to_file_esrijson(gdf_s_bridge_warning_pnt, str_bridge_pnt_esri_key)
 
-            if cfg.local_results.publish_historic:  # historic results
-                str_bridge_pnt_key = f"{local_output_folder_hist}/{str_model_runtime}_bridge_warning_pnts.geojson"
+
+            if cfg.local_results.publish_historic: # historic results
+                str_bridge_pnt_key = (
+                    f"{local_output_folder_hist}/{str_model_runtime}_bridge_warning_pnts.geojson"
+                )
                 fn_write_gdf_to_file(gdf_s_bridge_warning_pnt, str_bridge_pnt_key)
                 # if cfg.local_results.publish_esri_json:
                 #     str_bridge_pnt_esri_key = f"{local_output_folder_hist}/{model_runtime}_bridge_warning_pnts_esrijson.json"
@@ -269,149 +279,91 @@ async def fn_push_to_s3(cfg: FASTConfig, b_print_output: bool):
 
             # --- Write the trimmed road lines ---
         if cfg.local_results.publish_roads:
-            if cfg.local_results.output_folder:  # live results
+            if cfg.local_results.publish_live: # live results
                 str_road_trim_ln_key = (
                     f"{cfg.local_results.output_folder}/flood_road_trim_ln.geojson"
                 )
                 fn_write_gdf_to_file(gdf_s_flood_road_trim_ln, str_road_trim_ln_key)
 
-            if cfg.local_results.output_folder_historic:  # live results
-                str_road_trim_ln_key = f"{local_output_folder_hist}/{str_model_runtime}_flood_road_trim_ln.geojson"
+            if cfg.local_results.publish_historic: # live results
+                str_road_trim_ln_key = (
+                    f"{local_output_folder_hist}/{str_model_runtime}_flood_road_trim_ln.geojson"
+                )
                 fn_write_gdf_to_file(gdf_s_flood_road_trim_ln, str_road_trim_ln_key)
             # str_road_trim_ln_esri_key = f"{local_output_folder}/{model_runtime}_flood_road_trim_ln_esrijson.json"
             # fn_write_gdf_to_file_esrijson(gdf_s_flood_road_trim_ln, str_road_trim_ln_esri_key)
 
         if cfg.local_results.publish_inundation:
-            if cfg.local_results.output_folder:  # live results
+            if cfg.local_results.publish_live: # live results
                 str_flood_ar_key = f"{local_output_folder}/flood_ar.geojson"
                 fn_write_gdf_to_file(gdf_s_flood_merge_ar, str_flood_ar_key)
                 # --- Write the flood polygons ---
-            if cfg.local_results.output_folder_historic:
-                str_flood_ar_key = (
-                    f"{local_output_folder_hist}/{str_model_runtime}_flood_ar.geojson"
-                )
+            if cfg.local_results.publish_historic: 
+                str_flood_ar_key = f"{local_output_folder_hist}/{str_model_runtime}_flood_ar.geojson"
                 fn_write_gdf_to_file(gdf_s_flood_merge_ar, str_flood_ar_key)
                 # str_flood_ar_esri_key = f"{local_output_folder}/{model_runtime}_flood_ar_esrijson.json"
                 # fn_write_gdf_to_file_esrijson(gdf_s_flood_merge_ar, str_flood_ar_esri_key)
 
+
     if cfg.write_to_s3:
         s3_tasks = []
         w = cfg.write_to_s3
-
+        
         # BRIDGES
         if w.publish_bridges:
             if w.publish_live:
                 str_s3_key = f"{str_publish_sub_folder}bridge_warning_pnts.geojson"
-                s3_tasks.append(
-                    fn_write_gdf_to_s3(
-                        gdf_s_bridge_warning_pnt, w.publish_bucket, str_s3_key
-                    )
-                )
+                s3_tasks.append(fn_write_gdf_to_s3(gdf_s_bridge_warning_pnt, w.publish_bucket, str_s3_key))
                 if w.publish_esri_json:
-                    str_s3_esri_key = (
-                        f"{str_publish_sub_folder}bridge_warning_pnts_esrijson.json"
-                    )
-                    s3_tasks.append(
-                        fn_write_gdf_to_s3_esrijson(
-                            gdf_s_bridge_warning_pnt, w.publish_bucket, str_s3_esri_key
-                        )
-                    )
+                    str_s3_esri_key = f"{str_publish_sub_folder}bridge_warning_pnts_esrijson.json"
+                    s3_tasks.append(fn_write_gdf_to_s3_esrijson(gdf_s_bridge_warning_pnt, w.publish_bucket, str_s3_esri_key))
 
             if w.publish_historic:
                 str_s3_key = f"{w.publish_historic_sub_folder}/{str_model_runtime}_bridge_warning_pnts.geojson"
-                s3_tasks.append(
-                    fn_write_gdf_to_s3(
-                        gdf_s_bridge_warning_pnt, w.publish_historic_bucket, str_s3_key
-                    )
-                )
+                s3_tasks.append(fn_write_gdf_to_s3(gdf_s_bridge_warning_pnt, w.publish_historic_bucket, str_s3_key))
                 if w.publish_esri_json:
                     str_s3_esri_key = f"{w.publish_historic_sub_folder}/{str_model_runtime}_bridge_warning_pnts_esrijson.json"
-                    s3_tasks.append(
-                        fn_write_gdf_to_s3_esrijson(
-                            gdf_s_bridge_warning_pnt,
-                            w.publish_historic_bucket,
-                            str_s3_esri_key,
-                        )
-                    )
+                    s3_tasks.append(fn_write_gdf_to_s3_esrijson(gdf_s_bridge_warning_pnt, w.publish_historic_bucket, str_s3_esri_key))
 
         # ROADS
         if w.publish_roads:
             if w.publish_live:
                 str_s3_key = f"{str_publish_sub_folder}flood_road_trim_ln.geojson"
-                s3_tasks.append(
-                    fn_write_gdf_to_s3(
-                        gdf_s_flood_road_trim_ln, w.publish_bucket, str_s3_key
-                    )
-                )
+                s3_tasks.append(fn_write_gdf_to_s3(gdf_s_flood_road_trim_ln, w.publish_bucket, str_s3_key))
                 if w.publish_esri_json:
-                    str_s3_esri_key = (
-                        f"{w.publish_sub_folder}flood_road_trim_ln_esrijson.json"
-                    )
-                    s3_tasks.append(
-                        fn_write_gdf_to_s3_esrijson(
-                            gdf_s_flood_road_trim_ln, w.publish_bucket, str_s3_esri_key
-                        )
-                    )
+                    str_s3_esri_key = f"{str_publish_sub_folder}flood_road_trim_ln_esrijson.json"
+                    s3_tasks.append(fn_write_gdf_to_s3_esrijson(gdf_s_flood_road_trim_ln, w.publish_bucket, str_s3_esri_key))
 
             if w.publish_historic:
                 str_s3_key = f"{w.publish_historic_sub_folder}/{str_model_runtime}_flood_road_trim_ln.geojson"
-                s3_tasks.append(
-                    fn_write_gdf_to_s3(
-                        gdf_s_flood_road_trim_ln, w.publish_historic_bucket, str_s3_key
-                    )
-                )
+                s3_tasks.append(fn_write_gdf_to_s3(gdf_s_flood_road_trim_ln, w.publish_historic_bucket, str_s3_key))
                 if w.publish_esri_json:
                     str_s3_esri_key = f"{w.publish_historic_sub_folder}/{str_model_runtime}_flood_road_trim_ln_esrijson.json"
-                    s3_tasks.append(
-                        fn_write_gdf_to_s3_esrijson(
-                            gdf_s_flood_road_trim_ln,
-                            w.publish_historic_bucket,
-                            str_s3_esri_key,
-                        )
-                    )
+                    s3_tasks.append(fn_write_gdf_to_s3_esrijson(gdf_s_flood_road_trim_ln, w.publish_historic_bucket, str_s3_esri_key))
 
         # FLOOD AREAS
         if w.publish_inundation:
             if w.publish_live:
                 str_s3_key = f"{str_publish_sub_folder}flood_ar.geojson"
-                s3_tasks.append(
-                    fn_write_gdf_to_s3(
-                        gdf_s_flood_merge_ar, w.publish_bucket, str_s3_key
-                    )
-                )
+                s3_tasks.append(fn_write_gdf_to_s3(gdf_s_flood_merge_ar, w.publish_bucket, str_s3_key))
                 if w.publish_esri_json:
                     str_s3_esri_key = f"{str_publish_sub_folder}flood_ar_esrijson.json"
-                    s3_tasks.append(
-                        fn_write_gdf_to_s3_esrijson(
-                            gdf_s_flood_merge_ar, w.publish_bucket, str_s3_esri_key
-                        )
-                    )
+                    s3_tasks.append(fn_write_gdf_to_s3_esrijson(gdf_s_flood_merge_ar, w.publish_bucket, str_s3_esri_key))
 
             if w.publish_historic:
                 str_s3_key = f"{w.publish_historic_sub_folder}/{str_model_runtime}_flood_ar.geojson"
-                s3_tasks.append(
-                    fn_write_gdf_to_s3(
-                        gdf_s_flood_merge_ar, w.publish_historic_bucket, str_s3_key
-                    )
-                )
+                s3_tasks.append(fn_write_gdf_to_s3(gdf_s_flood_merge_ar, w.publish_historic_bucket, str_s3_key))
                 if w.publish_esri_json:
                     str_s3_esri_key = f"{w.publish_historic_sub_folder}/{str_model_runtime}_flood_ar_esrijson.json"
-                    s3_tasks.append(
-                        fn_write_gdf_to_s3_esrijson(
-                            gdf_s_flood_merge_ar,
-                            w.publish_historic_bucket,
-                            str_s3_esri_key,
-                        )
-                    )
+                    s3_tasks.append(fn_write_gdf_to_s3_esrijson(gdf_s_flood_merge_ar, w.publish_historic_bucket, str_s3_esri_key))
 
         await asyncio.gather(*s3_tasks)
-
-
 # .........................................................
 
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 if __name__ == "__main__":
+
     flt_start_run = time.time()
     parser = argparse.ArgumentParser()
     parser.add_argument("-c", "--config", required=True)

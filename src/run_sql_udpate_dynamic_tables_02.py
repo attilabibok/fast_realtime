@@ -18,42 +18,25 @@ from utils import FASTConfig, load_config, resolve_db_credentials, fn_run_sql_sc
 # ************************************************************
 
 import logging
-
 logger = logging.getLogger(__name__)
 
 
 # .........................................................
-def fn_run_sql_udpate_dynamic_tables(
-    cfg: FASTConfig, b_print_output: bool = True
-) -> str:
+def fn_run_sql_udpate_dynamic_tables(cfg: FASTConfig, b_print_output: bool = True) -> str:
     # suppress all warnings
     warnings.filterwarnings("ignore", category=UserWarning)
 
     if b_print_output:
-        logger.info(
-            "+=================================================================+"
-        )
-        logger.info(
-            "|              UPDATE FAST DYNAMIC POSTGRES TABLES                |"
-        )
-        logger.info(
-            "|                Created by Andy Carter, PE of                    |"
-        )
-        logger.info(
-            "|             Center for Water and the Environment                |"
-        )
-        logger.info(
-            "|                 University of Texas at Austin                   |"
-        )
-        logger.info(
-            "+-----------------------------------------------------------------+"
-        )
+        logger.info("+=================================================================+")
+        logger.info("|              UPDATE FAST DYNAMIC POSTGRES TABLES                |")
+        logger.info("|                Created by Andy Carter, PE of                    |")
+        logger.info("|             Center for Water and the Environment                |")
+        logger.info("|                 University of Texas at Austin                   |")
+        logger.info("+-----------------------------------------------------------------+")
         logger.info("  ---[r] PRINT OUTPUT: " + str(b_print_output))
-        logger.info(
-            "==================================================================="
-        )
+        logger.info("===================================================================")
     else:
-        logger.info("Step 2: Update realtime flood tables")
+        logger.info('Step 2: Update realtime flood tables')
 
     if not cfg.sql:
         logger.warning("  !! Missing [sql] section in config")
@@ -68,15 +51,15 @@ def fn_run_sql_udpate_dynamic_tables(
 
     try:
         db_config = resolve_db_credentials(cfg.database)
-        result = fn_run_sql_script(db_config, sql_file_path)
+        result = fn_run_sql_script(db_config, sql_file_path, params={"workflow_id":cfg.sql.workflow_id})
         return result  # 'success', 'timeout', or 'error'
     except Exception as e:
         logger.error(f"  !! SQL execution failed: {e}")
         return "error"
+    
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+if __name__ == '__main__':
 
-
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-c", "--config", required=True)
     parser.add_argument("--quiet", action="store_true")
@@ -88,4 +71,4 @@ if __name__ == "__main__":
     end = time.time()
     logger.info(f"Compute Time: {datetime.timedelta(seconds=int(end - start))}")
 
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
