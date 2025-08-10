@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 import asyncio
 import logging
 import time
+import os
 import datetime
 from generate_treeview import generate_html
 from fast_realtime_batch import process_all_ini_files_parallel  # <- your current module
@@ -29,8 +30,7 @@ FILE_DA_FINAL_NC = "/fast_realtime/src/config_FULL_hand_linux_DA_nc.ini"
 FILE_NWM_FINAL_NC = "/fast_realtime/src/config_FULL_hand_linux_NWM_nc.ini"
 
 PRINT_OUTPUT = False
-MAX_WORKERS = 6
-
+MAX_WORKERS = int(os.getenv("MAX_PROCESSES", "3"))
 
 def run_update():
 
