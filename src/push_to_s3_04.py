@@ -14,6 +14,7 @@ import argparse
 from shapely.geometry import MultiLineString, Point, Polygon
 import asyncio
 import time
+import numpy as np
 import datetime
 import warnings
 import pandas as pd
@@ -34,6 +35,9 @@ logger = logging.getLogger(__name__)
 # ----------------------
 # ----------------
 def fn_assign_warn_class(row):
+    if not isinstance(row["min_dist_to_low_ch"], (float, int)):
+        raise TypeError(f"min_dist_to_low_ch must be a number, got {type(row['min_dist_to_low_ch']).__name__}")
+
     if row["is_overtop"] == 1:
         return "overtopped"
     elif row["min_dist_to_low_ch"] < 0.5:
@@ -46,6 +50,15 @@ def fn_assign_warn_class(row):
         return "low"
 
 
+def assign_warn_class_vectorized(df):
+    condlist = [
+        df["is_overtop"] == 1,
+        df["min_dist_to_low_ch"] < 0.5,
+        (df["min_dist_to_low_ch"] >= 0.5) & (df["min_dist_to_low_ch"] < 2),
+        (df["min_dist_to_low_ch"] >= 2) & (df["min_dist_to_low_ch"] < 5),
+    ]
+    choicelist = ["overtopped", "critical", "high", "moderate"]
+    return np.select(condlist, choicelist, default="low")
 # ----------------
 
 
@@ -81,26 +94,22 @@ async def fn_push_to_s3(cfg: FASTConfig, b_print_output: bool):
 
     # table names in PostgreSQL
     str_bridge_table_name = "s_bridge_warning_pnt"
-    # str_road_nav_table_name = "s_flood_road_ln"
     str_road_table_name = "s_flood_road_trim_ln"
     str_inundation_table_name = "s_flood_merge_ar"
 
     gdf_s_bridge_warning_pnt = fn_get_geodataframe_from_postgresql(
-        str_bridge_table_name, db_params, "geometry"
+        str_bridge_table_name, db_params, "geometry", workflow_id=cfg.sql.workflow_id
     )
-    # gdf_s_flood_road_nav_ln = fn_get_geodataframe_from_postgresql(
-    #     str_road_nav_table_name, db_params, "geometry"
-    # )
     gdf_s_flood_road_trim_ln = fn_get_geodataframe_from_postgresql(
-        str_road_table_name, db_params, "geometry"
+        str_road_table_name, db_params, "geometry", workflow_id=cfg.sql.workflow_id
     )
     gdf_s_flood_merge_ar = fn_get_geodataframe_from_postgresql(
-        str_inundation_table_name, db_params, "geometry"
+        str_inundation_table_name, db_params, "geometry", workflow_id=cfg.sql.workflow_id
     )
 
     # Get model runtime for sure. do not rely on non-empty results.
     db_conn_info = resolve_db_credentials(cfg.database)
-    df_current = fn_get_dataframe_from_postgresql('t_current_forecast', db_conn_info)
+    df_current = fn_get_dataframe_from_postgresql('t_current_forecast', db_conn_info, workflow_id=cfg.sql.workflow_id)
     # model_run_time = df_current.iloc[0]['model_run_time'].tz_localize("UTC")
     raw_value = df_current.iloc[0]['model_run_time']
     model_run_time = pd.to_datetime(raw_value, errors='coerce')
@@ -180,6 +189,7 @@ async def fn_push_to_s3(cfg: FASTConfig, b_print_output: bool):
             "model_run_time": [str(model_run_time)],
             "length_ft": [0],
             "geometry": [geometry_fake_line],
+            "workflow_id": cfg.sql.workflow_id,
         }
 
         gdf_s_flood_road_trim_ln = gpd.GeoDataFrame(
@@ -212,6 +222,7 @@ async def fn_push_to_s3(cfg: FASTConfig, b_print_output: bool):
             "url": [""],
             "warn_class": ["low"],
             "geometry": [geometry_fake_point],
+            "workflow_id": cfg.sql.workflow_id,
         }
 
         gdf_s_bridge_warning_pnt = gpd.GeoDataFrame(
@@ -219,8 +230,6 @@ async def fn_push_to_s3(cfg: FASTConfig, b_print_output: bool):
         )
 
     # # --- Prepare layers for lean TxDOT export ---
-    # columns_to_keep_road_nav = ["geometry", "name", "ref", "fclass", "model_run_time"]
-    # gdf_s_flood_road_nav_ln = gdf_s_flood_road_nav_ln[columns_to_keep_road_nav]
 
     columns_to_keep_road_trim = [
         "geometry",
@@ -229,13 +238,15 @@ async def fn_push_to_s3(cfg: FASTConfig, b_print_output: bool):
         "fclass",
         "model_run_time",
         "length_ft",
+        "workflow_id",
     ]
     gdf_s_flood_road_trim_ln = gdf_s_flood_road_trim_ln[columns_to_keep_road_trim]
 
     # Prepare prepare bridge worning points for geoJSON
-    gdf_s_bridge_warning_pnt["warn_class"] = gdf_s_bridge_warning_pnt.apply(
-        fn_assign_warn_class, axis=1
+    gdf_s_bridge_warning_pnt["min_dist_to_low_ch"] = pd.to_numeric(
+        gdf_s_bridge_warning_pnt["min_dist_to_low_ch"], errors="raise"
     )
+    gdf_s_bridge_warning_pnt["warn_class"] = assign_warn_class_vectorized(gdf_s_bridge_warning_pnt)
     columns_to_keep_bridge = [
         "geometry",
         "warn_class",
@@ -246,13 +257,12 @@ async def fn_push_to_s3(cfg: FASTConfig, b_print_output: bool):
         "min_dist_to_low_ch",
         "model_run_time",
         "url",
+        "workflow_id",
     ]
     gdf_s_bridge_warning_pnt = gdf_s_bridge_warning_pnt[columns_to_keep_bridge]
 
     if cfg.local_results:
         # --- Write the bridge points ---
-        # ts = gdf_s_bridge_warning_pnt.loc[0, "model_run_time"]
-        # model_runtime = datetime.datetime.fromisoformat(ts).strftime("%Y%m%d%H%M")
         local_output_folder = cfg.local_results.output_folder
         local_output_folder_hist = cfg.local_results.output_folder_historic
 

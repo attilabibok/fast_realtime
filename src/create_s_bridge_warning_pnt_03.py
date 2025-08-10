@@ -9,7 +9,7 @@
 # ************************************************************
 import pandas as pd
 import psycopg2
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 import geopandas as gpd
 import numpy as np
 import ast
@@ -19,26 +19,12 @@ import time
 import datetime
 import warnings
 
-from utils import FASTConfig, load_config, resolve_db_credentials, fn_get_dataframe_from_postgresql, fn_get_geodataframe_from_postgresql
+from utils import FASTConfig, load_config, resolve_db_credentials, fn_get_dataframe_from_postgresql
 # ************************************************************
 
 import logging
 logger = logging.getLogger(__name__)
 # ------------
-
-# def fn_get_dataframe_from_postgresql(str_table_name, db_params):
-#     conn = psycopg2.connect(**db_params)
-#     cur = conn.cursor()
-#     query = f"SELECT * FROM public.{str_table_name}"
-#     cur.execute(query)
-#     rows = cur.fetchall()
-#     colnames = [desc[0] for desc in cur.description]
-#     df = pd.DataFrame(rows, columns=colnames)
-#     cur.close()
-#     conn.close()
-#     return df
-# # ------------
-
 # -------------
 def fn_interpolate_wse_from_flow(flow_array, list_rating_curve_str_or_list):
     """
@@ -110,7 +96,7 @@ def fn_create_s_bridge_warning_pnt(cfg: FASTConfig, b_print_output: bool):
     db_params = resolve_db_credentials(cfg.database)
 
     logger.debug('Computing bridge points')
-    df_rating_curves = fn_get_dataframe_from_postgresql(table='t_bridge_rating_curve', db=db_params) # static, no workflow_id
+    df_rating_curves = fn_get_dataframe_from_postgresql(table='t_bridge_rating_curve', db=db_params, workflow_id=None) # static, no workflow_id
     df_max_flow = fn_get_dataframe_from_postgresql(table='t_flow_per_nextgen', db=db_params, workflow_id=cfg.sql.workflow_id) # workflow_id 
 
     uuid_list = df_rating_curves['uuid_bridge'].dropna().unique().tolist()
@@ -155,20 +141,29 @@ def fn_create_s_bridge_warning_pnt(cfg: FASTConfig, b_print_output: bool):
             "&first_utc_time=" + gdf_flow_points['model_run_time']
         )
         gdf_flow_points = gdf_flow_points.drop(columns=['depth_array_str'])
+        gdf_flow_points['workflow_id'] = cfg.sql.workflow_id
     else:
         logger.warning('No bridge warnings to report')
         gdf_flow_points = gpd.GeoDataFrame(columns=[
             'geometry', 'BRDG_ID', 'uuid_bridge', 'min_low_ch', 'min_ground', 'min_overtop',
             'name', 'ref', 'nhd_name', 'model_run_time', 'max_wse', 'min_dist_to_low_ch',
-            'is_overtop', 'depth_array', 'url'], geometry='geometry', crs='EPSG:4326')
+            'is_overtop', 'depth_array', 'url', 'workflow_id'], geometry='geometry', crs='EPSG:4326')
 
     logger.debug('Uploading bridge points to PostgreSQL')
     engine_url = (
         f"postgresql+psycopg2://{db_params['user']}:{db_params['password']}@{db_params['host']}/{db_params['dbname']}"
     )
     engine = create_engine(engine_url)
-    with engine.connect() as conn:
-        gdf_flow_points.to_postgis("s_bridge_warning_pnt", conn, if_exists='replace', index=False)
+    with engine.begin() as conn:  # begin() ensures atomic transaction
+        # Step 1: Delete previous rows with same workflow_id
+        delete_stmt = text("DELETE FROM public.s_bridge_warning_pnt WHERE workflow_id = :wf_id")
+        conn.execute(delete_stmt, {"wf_id": cfg.sql.workflow_id})
+
+        # Step 2: Append new rows
+        gdf_flow_points.to_postgis(
+            "s_bridge_warning_pnt", conn, if_exists='append', index=False
+        )
+
     logger.info('Bridge points successfully uploaded')
 
 

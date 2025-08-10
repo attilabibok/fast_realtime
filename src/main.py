@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.responses import PlainTextResponse
 from pathlib import Path
 from contextlib import asynccontextmanager
 import asyncio
@@ -20,21 +21,38 @@ FOLDER_PATH_DA = Path("./src/txdot_dist_local_da")
 FOLDER_PATH_NWM = Path("./src/txdot_dist_local_nwm")
 FILE_DA_FINAL = "/fast_realtime/src/config_FULL_hand_linux_DA.ini"
 FILE_NWM_FINAL = "/fast_realtime/src/config_FULL_hand_linux_NWM.ini"
+
+
+FOLDER_PATH_DA_NC = Path("./src/txdot_dist_local_da_nowcast")
+FOLDER_PATH_NWM_NC = Path("./src/txdot_dist_local_nwm_nowcast")
+FILE_DA_FINAL_NC = "/fast_realtime/src/config_FULL_hand_linux_DA_nc.ini"
+FILE_NWM_FINAL_NC = "/fast_realtime/src/config_FULL_hand_linux_NWM_nc.ini"
+
 PRINT_OUTPUT = False
 MAX_WORKERS = 6
 
 
 def run_update():
-    # Now lets do the NWM ones too 
-    # start = time.time()
-    # process_all_ini_files_parallel(FOLDER_PATH_NWM, PRINT_OUTPUT, max_workers=MAX_WORKERS, final_ini_str=FILE_NWM_FINAL)
-    # duration = str(datetime.timedelta(seconds=int(time.time() - start)))
-    # logger.info(f"[✓] All .ini files processed in: {duration}")
+
+    start = time.time()
+    process_all_ini_files_parallel(FOLDER_PATH_NWM_NC, PRINT_OUTPUT, max_workers=MAX_WORKERS, final_ini_str=FILE_NWM_FINAL_NC)
+    duration = str(datetime.timedelta(seconds=int(time.time() - start)))
+    logger.info(f"[✓] All NWM NC .ini files processed in: {duration}")
+
+    start = time.time()
+    process_all_ini_files_parallel(FOLDER_PATH_NWM, PRINT_OUTPUT, max_workers=MAX_WORKERS, final_ini_str=FILE_NWM_FINAL)
+    duration = str(datetime.timedelta(seconds=int(time.time() - start)))
+    logger.info(f"[✓] All NWM .ini files processed in: {duration}")
+
+    start = time.time()
+    process_all_ini_files_parallel(FOLDER_PATH_DA_NC, PRINT_OUTPUT, max_workers=MAX_WORKERS, final_ini_str=FILE_DA_FINAL_NC)
+    duration = str(datetime.timedelta(seconds=int(time.time() - start)))
+    logger.info(f"[✓] All DA NC .ini files processed in: {duration}")
 
     start = time.time()
     process_all_ini_files_parallel(FOLDER_PATH_DA, PRINT_OUTPUT, max_workers=MAX_WORKERS, final_ini_str=FILE_DA_FINAL)
     duration = str(datetime.timedelta(seconds=int(time.time() - start)))
-    logger.info(f"[✓] All .ini files processed in: {duration}")
+    logger.info(f"[✓] All DA .ini files processed in: {duration}")
 
     start = time.time()
     # S3 HTML index generation tasks
@@ -44,7 +62,8 @@ def run_update():
         generate_html(bucket=BUCKET_NAME, prefix="fast_historic/da/", output_html=OUTPUT_HTML, s3_upload=True),
         generate_html(bucket=BUCKET_NAME, prefix="fast_realtime/da/", output_html=OUTPUT_HTML, s3_upload=True),
         generate_html(bucket=BUCKET_NAME, prefix="fast_historic/nwm/", output_html=OUTPUT_HTML, s3_upload=True),
-        generate_html(bucket=BUCKET_NAME, prefix="fast_realtime/nwm/", output_html=OUTPUT_HTML, s3_upload=True),
+        generate_html(bucket=BUCKET_NAME, prefix="fast_realtime/nwm_nc/", output_html=OUTPUT_HTML, s3_upload=True),
+        generate_html(bucket=BUCKET_NAME, prefix="fast_realtime/da_nc/", output_html=OUTPUT_HTML, s3_upload=True),
     ]
 
     # Run async index generation
@@ -64,7 +83,7 @@ async def lifespan(app: FastAPI):
             logger.info("⏳ Scheduled FAST update starting...")
             await asyncio.to_thread(run_update)
             logger.info("✅ Scheduled FAST update complete. Sleeping for 5 minutes...")
-            await asyncio.sleep(30 * 60)
+            await asyncio.sleep(60 * 60)
 
     asyncio.create_task(scheduler())
     yield  # application startup happens here
@@ -76,3 +95,7 @@ async def trigger_batch_run():
     logger.info("Manual trigger received...")
     await asyncio.to_thread(run_update)
     return {"status": "Update started in background"}
+
+@app.get("/healthz", response_class=PlainTextResponse)
+async def healthz():
+    return "OK"

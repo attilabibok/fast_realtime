@@ -1,11 +1,11 @@
 -- SETTING A TIMEOUT FOR HEAVY QUERIES
-SET statement_timeout TO '3min';
+SET statement_timeout TO '10min';
 
 -- Acquire an advisory lock to prevent concurrent executions
 SELECT pg_advisory_lock(20250628);
 
 -- Declare the workflow ID
-\set workflow_id 'default'  -- Override using psql -v workflow_id='your-id'
+-- \set workflow_id 'default'  -- Override using psql -v workflow_id='your-id'
 
 -- ITEM #0: Establish flows per stream
 DELETE FROM t_flow_per_nextgen WHERE workflow_id = :'workflow_id';
@@ -111,7 +111,7 @@ deduped AS (
     FROM joined_roads
     ORDER BY osm_id, fclass, name, ref, road_id, nextgen_id, min_flood_flow, max_flow, model_run_time
 )
-SELECT *, workflow_id FROM deduped;
+SELECT * FROM deduped;
 
 -- ITEM #3: Create grid over selected flood areas
 DELETE FROM s_flood_grid_ar WHERE workflow_id = :'workflow_id';

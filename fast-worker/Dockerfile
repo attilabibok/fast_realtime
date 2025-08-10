@@ -57,7 +57,9 @@ RUN pip install \
     pyyaml \
     esrijson \
     pydantic_settings \
-    pydantic
+    pydantic \
+    fastapi \
+    uvicorn
 
 
 # Clean caches

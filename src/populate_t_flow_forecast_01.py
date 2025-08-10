@@ -115,7 +115,7 @@ def fn_populate_t_flow_forecast(cfg: FASTConfig, b_print_output: bool = False):
                 text("DELETE FROM t_flow_forecast WHERE workflow_id = :workflow_id"),
                 {"workflow_id": df_final['workflow_id'].iloc[0]},
             )
-
+        df_final = df_final.drop(columns=['flow_t18'], errors='ignore')
         # Insert new data
         df_final.to_sql('t_flow_forecast', engine, if_exists='append', index=False)
         logger.info("Data successfully pushed to PostgreSQL")

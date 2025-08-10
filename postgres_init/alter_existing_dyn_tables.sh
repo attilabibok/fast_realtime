@@ -141,10 +141,14 @@ BEGIN
     SELECT 1 FROM information_schema.columns
     WHERE table_name = 's_flood_merge_ar' AND column_name = 'tile_id'
   )
+  AND EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_name = 's_flood_merge_ar' AND column_name = 'workflow_id'
+  )
   AND NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 's_flood_merge_ar_pkey'
   ) THEN
-    EXECUTE 'ALTER TABLE s_flood_merge_ar ADD CONSTRAINT s_flood_merge_ar_pkey PRIMARY KEY (tile_id)';
+    EXECUTE 'ALTER TABLE s_flood_merge_ar ADD PRIMARY KEY (tile_id, workflow_id)';
   END IF;
 
   IF EXISTS (
@@ -168,6 +172,18 @@ BEGIN
     SELECT 1 FROM pg_indexes WHERE indexname = 'idx_s_flood_grid_ar_geom'
   ) THEN
     EXECUTE 'CREATE INDEX idx_s_flood_grid_ar_geom ON s_flood_grid_ar USING GIST (geom)';
+  END IF;
+  -- This is to handle combined keys in static tables per workflow_id
+  IF EXISTS (
+    SELECT 1 FROM information_schema.table_constraints
+    WHERE table_name = 's_flood_grid_ar' AND constraint_type = 'PRIMARY KEY'
+  ) THEN
+    EXECUTE 'ALTER TABLE s_flood_grid_ar DROP CONSTRAINT s_flood_grid_ar_pkey';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 's_flood_grid_ar_pkey'
+  ) THEN
+    EXECUTE 'ALTER TABLE s_flood_grid_ar ADD PRIMARY KEY (id, workflow_id)';
   END IF;
 
   IF NOT EXISTS (

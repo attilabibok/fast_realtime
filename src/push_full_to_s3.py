@@ -127,16 +127,16 @@ async def fn_merged_view(cfg: FASTConfig, b_print_output: bool = False):
     str_inundation_table_name = "mv_flood_merge_tx"
 
     gdf_s_bridge_warning_pnt = fn_get_geodataframe_from_postgresql(
-        str_bridge_table_name, db_params, "geometry"
+        str_bridge_table_name, db_params, "geometry", workflow_id=cfg.merged_view.workflow_id
     )
     # gdf_s_flood_road_nav_ln = fn_get_geodataframe_from_postgresql(
     #     str_road_nav_table_name, db_params, "geometry"
     # )
     gdf_s_flood_road_trim_ln = fn_get_geodataframe_from_postgresql(
-        str_road_table_name, db_params, "geometry"
+        str_road_table_name, db_params, "geometry", workflow_id=cfg.merged_view.workflow_id
     )
     gdf_s_flood_merge_ar = fn_get_geodataframe_from_postgresql(
-        str_inundation_table_name, db_params, "geometry"
+        str_inundation_table_name, db_params, "geometry", workflow_id=cfg.merged_view.workflow_id
     )
 
     # Even if there are no polygons, this shold have one row with model_run_time

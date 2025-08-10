@@ -5,6 +5,7 @@ import configparser
 import json
 import psycopg2
 import yaml
+import re
 from pydantic import BaseModel, Field
 from configparser import ConfigParser
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -92,6 +93,7 @@ class MergedResultsConfig(BaseModel):
     sql_file_path: str = "sql/create_merged_materialized_view.sql"
     local_output: Optional[LocalResultsConfig] = None
     s3_output: Optional[WriteToS3Config] = None
+    workflow_id: str = Field(default="default")
 
 
 class BridgeWarningsConfig(BaseModel):
@@ -193,6 +195,11 @@ def resolve_db_credentials(cfg: DatabaseConfig) -> dict:
     }
 
 
+def safe_identifier(value: str, name="workflow_id") -> str:
+    if re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_-]*", value):
+        return value
+    raise ValueError(f"Unsafe value for {name}: {value!r}")
+
 def fn_run_sql_script(db_config: dict, sql_file_path: str, params: dict = None) -> str:
     try:
         conn = psycopg2.connect(**db_config)
@@ -203,8 +210,16 @@ def fn_run_sql_script(db_config: dict, sql_file_path: str, params: dict = None) 
 
         cursor = conn.cursor()
         try:
-            workflow_id = (params or {}).get("workflow_id", "default") # this si crucial to separate results from different sreamflow sources
-            cursor.execute(sql_script, {"workflow_id": workflow_id})
+            # converted_sql = re.sub(r":'workflow_id'", r"%(workflow_id)s", sql_script)
+            workflow_id = safe_identifier((params or {}).get("workflow_id", "default")) # this si crucial to separate results from different sreamflow sources
+            # cursor.execute(converted_sql, {"workflow_id": workflow_id})
+            # Step 1: convert psql-style placeholders to psycopg2-style
+            intermediate_sql = sql_script.replace(":'workflow_id'", "%(workflow_id)s")
+
+            # Step 2: replace with actual value (quoted)
+            converted_sql = intermediate_sql.replace("%(workflow_id)s", f"'{workflow_id}'")
+            # converted_sql = sql_script.replace("%(workflow_id)s", f"'{workflow_id}'")
+            cursor.execute(converted_sql)
             conn.commit()
             logger.info("  -- SQL script executed successfully")
             return "success"
@@ -221,16 +236,21 @@ def fn_run_sql_script(db_config: dict, sql_file_path: str, params: dict = None) 
             conn.close()
 
 
+
 def fn_get_geodataframe_from_postgresql(
-    table_name: str, db_params: dict, geom_col: str = "geometry"
+    table_name: str,
+    db_params: dict,
+    geom_col: str = "geometry",
+    workflow_id: str | None = "default"
 ) -> gpd.GeoDataFrame:
     """
-    Fetch a GeoDataFrame from a PostGIS table using psycopg2.
+    Fetch a GeoDataFrame from a PostGIS table using psycopg2, with optional workflow_id filtering.
 
     Parameters:
         table_name (str): Name of the table in 'schema.table' or 'table' format.
         db_params (dict): Dictionary with keys: host, dbname, user, password, port.
         geom_col (str): Name of the geometry column.
+        workflow_id (str | None): Optional workflow ID to filter results. If None, fetch all.
 
     Returns:
         GeoDataFrame: The queried spatial data.
@@ -244,8 +264,12 @@ def fn_get_geodataframe_from_postgresql(
     )
 
     try:
-        sql = f"SELECT * FROM {table_name}"
-        gdf = gpd.read_postgis(sql, con=connection, geom_col=geom_col)
+        if workflow_id is not None:
+            sql = f"SELECT * FROM {table_name} WHERE workflow_id = %s"
+            gdf = gpd.read_postgis(sql, con=connection, geom_col=geom_col, params=(workflow_id,))
+        else:
+            sql = f"SELECT * FROM {table_name}"
+            gdf = gpd.read_postgis(sql, con=connection, geom_col=geom_col)
     finally:
         connection.close()
 
@@ -337,11 +361,16 @@ async def fn_write_gdf_to_s3_esrijson(gdf, str_bucket_name: str, str_s3_key: str
 
 
 
-def fn_get_dataframe_from_postgresql(table: str, db: dict, workflow_id: str = "default") -> pd.DataFrame:
+def fn_get_dataframe_from_postgresql(table: str, db: dict, workflow_id: str | None = "default") -> pd.DataFrame:
     conn = psycopg2.connect(**db)
     cur = conn.cursor()
     try:
-        query = f"SELECT * FROM public.{table} WHERE workflow_id = %s"
+        if workflow_id is not None:
+            query = f"SELECT * FROM public.{table} WHERE workflow_id = %s"
+            cur.execute(query, (workflow_id,))
+        else:
+            query = f"SELECT * FROM public.{table}"
+            cur.execute(query)
         cur.execute(query, (workflow_id,))
         rows = cur.fetchall()
         colnames = [desc[0] for desc in cur.description]
