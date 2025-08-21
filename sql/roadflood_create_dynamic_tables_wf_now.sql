@@ -1,8 +1,21 @@
--- SETTING A TIMEOUT FOR HEAVY QUERIES
-SET statement_timeout TO '10min';
+BEGIN;
+-- SETTING A TIMEOUT FOR HEAVY QUERIES ( on the first run, it can be very slow)
+SET statement_timeout TO '40min';
 
--- Acquire an advisory lock to prevent concurrent executions
-SELECT pg_advisory_lock(20250628);
+-- Serialize only per-workflow:
+-- Don’t wait around for the per-workflow lock; fail fast if busy.
+SET LOCAL lock_timeout = '2s';
+
+-- Try to take a transaction-scoped advisory lock per workflow.
+-- If another run with the same workflow_id is active, we abort immediately.
+DO $$
+BEGIN
+  IF NOT pg_try_advisory_xact_lock(hashtext(:'workflow_id'), 0) THEN
+    RAISE EXCEPTION 'Workflow % is already running elsewhere. Skipping.', :'workflow_id';
+  END IF;
+END
+$$;
+
 
 -- Declare the workflow ID
 -- \set workflow_id 'default'  -- Override using psql -v workflow_id='your-id'
@@ -30,7 +43,7 @@ flows_with_array AS (
         f.workflow_id,
         ARRAY[f.flow_t00] AS flow_array
     FROM crosswalked c
-    JOIN t_flow_forecast f 
+    JOIN txfull.t_flow_forecast f 
       ON c.feature_id = f.feature_id
     WHERE f.workflow_id = :'workflow_id'
 )
@@ -227,7 +240,7 @@ DELETE FROM t_current_forecast WHERE workflow_id = :'workflow_id';
 
 INSERT INTO t_current_forecast (model_run_time, workflow_id)
 SELECT model_run_time, :'workflow_id'
-FROM t_flow_forecast
+FROM txfull.t_flow_forecast
 WHERE workflow_id = :'workflow_id'
 LIMIT 1;
 
@@ -241,4 +254,5 @@ BEGIN
 END $$;
 
 -- Release advisory lock
-SELECT pg_advisory_unlock(20250628);
+-- SELECT pg_advisory_unlock(20250628);
+COMMIT;

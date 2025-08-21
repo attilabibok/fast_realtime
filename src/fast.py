@@ -49,7 +49,7 @@ def run_fast_realtime_update(cfg: FASTConfig, print_output: bool = False, use_nw
             fn_populate_t_flow_forecast(cfg, print_output)
             log_duration(step_start, "Step 2: Populate from KISTERS")
         else:
-            raise RuntimeError("No valid forecast source configured.")
+            logger.warning("No valid forecast source configured. Local update is skipped. Ignore this warning if a foreign forecast table is used.")
 
         if cfg.sql:
             step_start = time.time()

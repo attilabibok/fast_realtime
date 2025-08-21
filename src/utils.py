@@ -41,11 +41,16 @@ class DownloadConfig(BaseModel):
     download_dir: str
     force: bool = False
     cleanup_after_load: bool = False
+    parameter: str = "streamflow"
+    workflow_id: str = Field(default="default")
+    input_schema: str = "public"
 
 
 class FlowFromNWMConfig(BaseModel):
     texas_feature_id_list: str = Field(..., alias="texas_faeture_id_list")
     force: bool = False
+    workflow_id: str = Field(default="default")
+    input_schema: str = "public"
 
 
 class WriteToS3Config(BaseModel):
@@ -366,10 +371,10 @@ def fn_get_dataframe_from_postgresql(table: str, db: dict, workflow_id: str | No
     cur = conn.cursor()
     try:
         if workflow_id is not None:
-            query = f"SELECT * FROM public.{table} WHERE workflow_id = %s"
+            query = f"SELECT * FROM {table} WHERE workflow_id = %s"
             cur.execute(query, (workflow_id,))
         else:
-            query = f"SELECT * FROM public.{table}"
+            query = f"SELECT * FROM {table}"
             cur.execute(query)
         cur.execute(query, (workflow_id,))
         rows = cur.fetchall()

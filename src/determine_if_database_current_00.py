@@ -3,6 +3,7 @@ import re
 import boto3
 from botocore import UNSIGNED
 from botocore.config import Config
+from typing import Optional
 from utils import FASTConfig, load_config, resolve_db_credentials, fn_get_dataframe_from_postgresql
 import logging
 logger = logging.getLogger(__name__)
@@ -58,6 +59,19 @@ def fn_determine_current_forecast():
 
 def fn_determine_if_database_current(cfg: FASTConfig, print_output: bool = False) -> bool:
     warnings.filterwarnings("ignore", category=UserWarning)
+    _workflow_id = (
+        getattr(cfg, "sql", None) and getattr(cfg.sql, "workflow_id", None)
+    ) or (
+        getattr(cfg, "download", None) and getattr(cfg.download, "workflow_id", None)
+    ) or "default"
+
+    _schema = (
+        getattr(cfg, "sql", None) and getattr(cfg.sql, "input_schema", None)
+    ) or (
+        getattr(cfg, "download", None) and getattr(cfg.download, "input_schema", None)
+    ) or "public"
+
+
     logger.info("Step 0: Determine if FAST database is current") if not print_output else logger.debug("""
 +=================================================================+
 |              DETERMINE IF FAST DATABASE IS CURRENT              |
@@ -65,25 +79,26 @@ def fn_determine_if_database_current(cfg: FASTConfig, print_output: bool = False
 |             Center for Water and the Environment                |
 |                 University of Texas at Austin                   |
 +-----------------------------------------------------------------+
-  ---(c) Loaded config for DB: {} @ {}
+  ---(c) Loaded config for DB: {} @ {} @ {}
   ---[r] PRINT OUTPUT: {}
-===================================================================""".format(cfg.database.dbname, cfg.database.host, print_output))
+===================================================================""".format(cfg.database.dbname, cfg.database.host, _workflow_id, print_output))
 
     result = fn_determine_current_forecast()
     str_iso8601_time = fn_parse_iso8601_date_from_s3(result[0]) if result else None
     if print_output:
         logger.debug(f'Current NWM forecast:  {str_iso8601_time}')
 
+
     db_conn_info = resolve_db_credentials(cfg.database)
-    df_current = fn_get_dataframe_from_postgresql('t_current_forecast', db_conn_info, cfg.sql.workflow_id or "default")
+    df_current = fn_get_dataframe_from_postgresql(f'{_schema}.t_current_forecast', db_conn_info, workflow_id=_workflow_id)
 
     if df_current.empty:
-        logger.info(f"t_current_forecast is empty for workflow_id={cfg.sql.workflow_id!r} — update required.")
+        logger.info(f"t_current_forecast is empty for workflow_id={_workflow_id!r} — update required.")
         return True
 
     db_model_time = df_current.iloc[0]['model_run_time']
     if print_output:
-        logger.debug(f'Current FAST forecast: {db_model_time}, workflow_id={cfg.sql.workflow_id!r}')
+        logger.debug(f'Current FAST forecast: {db_model_time}, workflow_id={_workflow_id!r}')
 
     if str_iso8601_time != db_model_time:
         logger.info(f'Update of FAST database required. Current: {db_model_time}')

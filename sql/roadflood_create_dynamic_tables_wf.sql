@@ -1,8 +1,8 @@
 -- SETTING A TIMEOUT FOR HEAVY QUERIES
-SET statement_timeout TO '10min';
+SET statement_timeout TO '40min';
 
 -- Acquire an advisory lock to prevent concurrent executions
-SELECT pg_advisory_lock(20250628);
+-- SELECT pg_advisory_lock(20250628);
 
 -- Declare the workflow ID
 -- \set workflow_id 'default'  -- Override using psql -v workflow_id='your-id'
@@ -34,7 +34,7 @@ flows_with_array AS (
             flow_t12, flow_t13, flow_t14, flow_t15, flow_t16, flow_t17
         ] AS flow_array
     FROM crosswalked c
-    JOIN t_flow_forecast f 
+    JOIN txfull.t_flow_forecast f 
       ON c.feature_id = f.feature_id
     WHERE f.workflow_id = :'workflow_id'
 )
@@ -235,7 +235,7 @@ DELETE FROM t_current_forecast WHERE workflow_id = :'workflow_id';
 
 INSERT INTO t_current_forecast (model_run_time, workflow_id)
 SELECT model_run_time, :'workflow_id'
-FROM t_flow_forecast
+FROM txfull.t_flow_forecast
 WHERE workflow_id = :'workflow_id'
 LIMIT 1;
 
@@ -248,4 +248,6 @@ BEGIN
 END $$;
 
 -- Release advisory lock
-SELECT pg_advisory_unlock(20250628);
+-- SELECT pg_advisory_unlock(20250628);
+COMMIT;
+

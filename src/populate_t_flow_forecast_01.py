@@ -83,20 +83,22 @@ def fn_populate_t_flow_forecast(cfg: FASTConfig, b_print_output: bool = False):
     logger.info('Opening netCDF')
     try:
         with xr.open_dataset(local_path) as ds:
+
+            param_name = cfg.download.parameter or "streamflow"
             logger.debug('Converting netCDF')
 
-            flow = (ds['streamflow'] * 35.3147).round().astype(int)
+            flow = (ds[param_name] * 35.3147).round().astype(int)
             time_labels = [f'flow_t{str(i).zfill(2)}' for i in range(flow.sizes['time'])]
 
             df = flow.to_dataframe().reset_index()
-            df_pivot = df.pivot(index='feature_id', columns='time', values='streamflow')
+            df_pivot = df.pivot(index='feature_id', columns='time', values=param_name)
             df_pivot.columns = time_labels
             df_pivot['model_run_time'] = pd.to_datetime(ds['reference_time'].values[0])
             df_final = df_pivot.reset_index()
             df_final = df_final[['feature_id', 'model_run_time'] + time_labels]
 
             # Add workflow_id
-            df_final['workflow_id'] = cfg.sql.workflow_id or "default"
+            df_final['workflow_id'] = cfg.download.workflow_id or "default"
 
     except Exception as e:
         logger.error(f"Failed to process NetCDF: {e}")
@@ -121,10 +123,10 @@ def fn_populate_t_flow_forecast(cfg: FASTConfig, b_print_output: bool = False):
         logger.info("Data successfully pushed to PostgreSQL")
 
         # FIXME: DELETE THIS when in production. Ensure indexes exist
-        with engine.begin() as conn:
-            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_t_flow_forecast_feature_id ON t_flow_forecast(feature_id)"))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_t_flow_forecast_feature_id ON t_flow_forecast(model_run_time)"))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_t_flow_forecast_workflow_id ON t_flow_forecast(workflow_id)"))
+        # with engine.begin() as conn:
+        #     conn.execute(text("CREATE INDEX IF NOT EXISTS idx_t_flow_forecast_feature_id ON t_flow_forecast(feature_id)"))
+        #     conn.execute(text("CREATE INDEX IF NOT EXISTS idx_t_flow_forecast_feature_id ON t_flow_forecast(model_run_time)"))
+        #     conn.execute(text("CREATE INDEX IF NOT EXISTS idx_t_flow_forecast_workflow_id ON t_flow_forecast(workflow_id)"))
     except Exception as e:
         logger.error(f" *** Database write failed: {e}")
         raise e

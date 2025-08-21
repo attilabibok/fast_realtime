@@ -40,27 +40,39 @@ def run_single_update(
 
 
 def process_all_ini_files_parallel(
-    folder_path: Path, print_output: bool = True, max_workers: int = 4, final_ini_str: Optional[str] = None
+    folder_path: Path, print_output: bool = True, max_workers: int = 4, final_ini_str: Optional[str] = None, initial_ini_str: Optional[str] = None
 ):
     ini_files = sorted(folder_path.glob("*.ini"))
     if not ini_files:
         logger.error(f"[!] No .ini files found in {folder_path}")
         return
 
+    if initial_ini_str:
+        txfull_init = Path(initial_ini_str).resolve()
+        name, status, dur, msg = run_single_update(txfull_init, print_output)
 
-    logger.debug("[i] Processing 1st file in single-process mode...")
-    first_ini = ini_files[0]
-    name, status, dur, msg = run_single_update(first_ini, print_output)
-    duration_str = str(datetime.timedelta(seconds=int(dur)))
-    if status == "success":
-        logger.info(f"[✓] Done: {name} | Duration: {duration_str}")
+        duration_str = str(datetime.timedelta(seconds=int(dur)))
+        if status == "success":
+            logger.info(f"[✓] Init step Done: {name} | Duration: {duration_str}")
+        else:
+            logger.error(f"[✗] Init step Failed: {name} | Duration: {duration_str} | Error: {msg}")
+
+        remaining_inis = ini_files
+
     else:
-        logger.error(f"[✗] Failed: {name} | Duration: {duration_str} | Error: {msg}")
+        logger.debug("[i] Processing 1st file in single-process mode...")
+        first_ini = ini_files[0]
+        name, status, dur, msg = run_single_update(first_ini, print_output)
+        duration_str = str(datetime.timedelta(seconds=int(dur)))
+        if status == "success":
+            logger.info(f"[✓] Done: {name} | Duration: {duration_str}")
+        else:
+            logger.error(f"[✗] Failed: {name} | Duration: {duration_str} | Error: {msg}")
 
-    # Remaining files
-    remaining_inis = ini_files[1:]
-    if not remaining_inis:
-        return
+        # Remaining files
+        remaining_inis = ini_files[1:]
+        if not remaining_inis:
+            return
 
     logger.debug(
         f"[i] Processing remaining {len(remaining_inis)} files in parallel using {max_workers} workers..."
@@ -97,9 +109,9 @@ def process_all_ini_files_parallel(
         name, status, dur, msg = run_single_update(txfull_config, print_output)
         duration_str = str(datetime.timedelta(seconds=int(dur)))
         if status == "success":
-            logger.info(f"[✓] Done: {name} | Duration: {duration_str}")
+            logger.info(f"[✓] Final step Done: {name} | Duration: {duration_str}")
         else:
-            logger.error(f"[✗] Failed: {name} | Duration: {duration_str} | Error: {msg}")
+            logger.error(f"[✗] Final step Failed: {name} | Duration: {duration_str} | Error: {msg}")
     else:
 
         logger.warning(f"To finalizer .ini was defined. This step is skipped.")

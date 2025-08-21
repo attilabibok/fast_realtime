@@ -147,7 +147,7 @@ def fn_populate_t_flow_forecast_from_NWM(cfg: FASTConfig, b_print_output: bool =
 
     df, utc_time = fn_streamflow_from_list_valid_files(result, bucket_name)
     df_flow_forecast = fn_format_flow_table(df, utc_time, feature_ids_path)
-    df_flow_forecast['workflow_id'] = cfg.sql.workflow_id or "default"
+    df_flow_forecast['workflow_id'] = cfg.flow_from_nwm.workflow_id or "default"
 
     logger.info('  -- Updating PostgreSQL... (~25 sec)')
     try:
@@ -157,17 +157,17 @@ def fn_populate_t_flow_forecast_from_NWM(cfg: FASTConfig, b_print_output: bool =
         # Clean up existing rows for this workflow
         with engine.begin() as conn:
             conn.execute(
-                text("DELETE FROM t_flow_forecast WHERE workflow_id = :workflow_id"),
+                text(f"DELETE FROM {cfg.flow_from_nwm.input_schema}.t_flow_forecast WHERE workflow_id = :workflow_id"),
                 {"workflow_id": df_flow_forecast['workflow_id'].iloc[0]},
             )
         # Insert new data
-        df_flow_forecast.to_sql('t_flow_forecast', engine, if_exists='append', index=False)
+        df_flow_forecast.to_sql(f'{cfg.flow_from_nwm.input_schema}.t_flow_forecast', engine, if_exists='append', index=False)
         # df_flow_forecast.to_sql('t_flow_forecast', engine, if_exists='replace', index=False)
         # FIXME: DELETE THIS when in production. Ensure indexes exist
-        with engine.begin() as conn:
-            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_t_flow_forecast_feature_id ON t_flow_forecast(feature_id)"))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_t_flow_forecast_feature_id ON t_flow_forecast(model_run_time)"))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_t_flow_forecast_workflow_id ON t_flow_forecast(workflow_id)"))
+        # with engine.begin() as conn:
+        #     conn.execute(text("CREATE INDEX IF NOT EXISTS idx_t_flow_forecast_feature_id ON t_flow_forecast(feature_id)"))
+        #     conn.execute(text("CREATE INDEX IF NOT EXISTS idx_t_flow_forecast_feature_id ON t_flow_forecast(model_run_time)"))
+        #     conn.execute(text("CREATE INDEX IF NOT EXISTS idx_t_flow_forecast_workflow_id ON t_flow_forecast(workflow_id)"))
         logger.info("  -- Data successfully pushed to PostgreSQL")
     except Exception as e:
         logger.info(f" *** Database write failed: {e}")

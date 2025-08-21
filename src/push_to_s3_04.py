@@ -27,7 +27,7 @@ from utils import (
     fn_write_gdf_to_s3,
     fn_write_gdf_to_s3_esrijson,fn_get_dataframe_from_postgresql
 )
-
+from typing import Optional
 import logging
 logger = logging.getLogger(__name__)
 # ************************************************************
@@ -63,7 +63,7 @@ def assign_warn_class_vectorized(df):
 
 
 # .........................................................
-async def fn_push_to_s3(cfg: FASTConfig, b_print_output: bool):
+async def fn_push_to_s3(cfg: FASTConfig, b_print_output: bool, foreign_db: Optional[str] = "txfull"):
     # suppress all warnings
     warnings.filterwarnings("ignore", category=UserWarning)
     warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -106,7 +106,6 @@ async def fn_push_to_s3(cfg: FASTConfig, b_print_output: bool):
     gdf_s_flood_merge_ar = fn_get_geodataframe_from_postgresql(
         str_inundation_table_name, db_params, "geometry", workflow_id=cfg.sql.workflow_id
     )
-
     # Get model runtime for sure. do not rely on non-empty results.
     db_conn_info = resolve_db_credentials(cfg.database)
     df_current = fn_get_dataframe_from_postgresql('t_current_forecast', db_conn_info, workflow_id=cfg.sql.workflow_id)
@@ -167,6 +166,9 @@ async def fn_push_to_s3(cfg: FASTConfig, b_print_output: bool):
             gdf_s_flood_merge_ar["is_real"] = 0
             gdf_s_flood_merge_ar["is_real"] = gdf_s_flood_merge_ar["is_real"].astype(int)
 
+    gdf_s_flood_merge_ar["model_run_time"] = pd.to_datetime(
+        gdf_s_flood_merge_ar["model_run_time"]
+    ).dt.strftime("%Y-%m-%dT%H:%M:%S")
     # -- If empty, create a AGOL placeholder for road lines
     if gdf_s_flood_road_trim_ln.empty:
 
@@ -196,6 +198,9 @@ async def fn_push_to_s3(cfg: FASTConfig, b_print_output: bool):
             dict_empty_road_data, crs="EPSG:4326"
         )
 
+    gdf_s_flood_road_trim_ln["model_run_time"] = pd.to_datetime(
+        gdf_s_flood_road_trim_ln["model_run_time"]
+    ).dt.strftime("%Y-%m-%dT%H:%M:%S")
 
     # -- If empty, create a AGOL placeholder for bridge warning points
     if gdf_s_bridge_warning_pnt.empty:

@@ -98,6 +98,8 @@ fi
 
 echo "Altering TXFull tables..."
 bash "/postgres_init/alter_existing_dyn_tables.sh"
+echo "Altering District tables..."
+bash "/postgres_init/wire_txfull_forecast.sh"
 
 echo "Setting up TXFull views..."
 psql -h postgis -U admin -d TXFull -f /postgres_init/create_foreign_data_views.sql

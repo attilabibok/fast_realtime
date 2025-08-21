@@ -14,7 +14,7 @@ import geopandas as gpd
 import argparse
 from shapely.geometry import MultiLineString, Point, Polygon
 import os
-
+import pandas as pd
 import asyncio
 import time
 import datetime
@@ -30,6 +30,7 @@ from utils import (
     fn_write_gdf_to_file,
     fn_write_gdf_to_s3_esrijson,
 )
+from typing import Optional
 import logging
 logger = logging.getLogger(__name__)
 
@@ -81,7 +82,7 @@ def fn_assign_warn_class(row):
 
 
 # .........................................................
-async def fn_merged_view(cfg: FASTConfig, b_print_output: bool = False):
+async def fn_merged_view(cfg: FASTConfig, b_print_output: bool = False, foreign_db: Optional[str] = "txfull"):
     # suppress all warnings
     warnings.filterwarnings("ignore", category=UserWarning)
     warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -158,6 +159,9 @@ async def fn_merged_view(cfg: FASTConfig, b_print_output: bool = False):
         gdf_s_flood_merge_ar["is_real"] = 0
         gdf_s_flood_merge_ar["is_real"] = gdf_s_flood_merge_ar["is_real"].astype(int)
 
+    gdf_s_flood_merge_ar["model_run_time"] = pd.to_datetime(
+        gdf_s_flood_merge_ar["model_run_time"]
+    ).dt.strftime("%Y-%m-%dT%H:%M:%S")
     # -- If empty, create a AGOL placeholder for road lines
     if gdf_s_flood_road_trim_ln.empty:
 
@@ -185,6 +189,10 @@ async def fn_merged_view(cfg: FASTConfig, b_print_output: bool = False):
         gdf_s_flood_road_trim_ln = gpd.GeoDataFrame(
             dict_empty_road_data, crs="EPSG:4326"
         )
+
+    gdf_s_flood_road_trim_ln["model_run_time"] = pd.to_datetime(
+        gdf_s_flood_road_trim_ln["model_run_time"]
+    ).dt.strftime("%Y-%m-%dT%H:%M:%S")
 
     # -- If empty, create a AGOL placeholder for bridge warning points
     if gdf_s_bridge_warning_pnt.empty:
@@ -249,10 +257,6 @@ async def fn_merged_view(cfg: FASTConfig, b_print_output: bool = False):
     gdf_s_bridge_warning_pnt = gdf_s_bridge_warning_pnt[columns_to_keep_bridge]
 
     # Get model runtime for sure. do not rely on non-empty results.
-    # db_conn_info = resolve_db_credentials(cfg.database)
-    # df_current = fn_get_dataframe_from_postgresql('t_current_forecast', db_conn_info)
-    # model_run_time = df_current.iloc[0]['model_run_time'].tz_localize("UTC")
-    # str_model_runtime = model_run_time.strftime("%Y%m%d%H%M")
     should_publish_historic = False
 
     if cfg.merged_view is not None:
