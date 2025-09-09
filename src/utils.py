@@ -1,20 +1,25 @@
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional, Union, Any, Dict, List, Optional
 from aiobotocore.session import get_session
+import math
 import configparser
 import json
 import psycopg2
 import yaml
 import re
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from configparser import ConfigParser
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
+import pandas as pd
+from datetime import datetime, timezone
+from shapely.geometry import Point, LineString, Polygon, MultiPoint, MultiLineString, MultiPolygon
+from shapely.geometry.base import BaseGeometry
+from geopandas import GeoDataFrame
 import geopandas as gpd
 import esrijson
-import pandas as pd
 import logging
 
+EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 logger = logging.getLogger(__name__)
 
 class DatabaseConfig(BaseSettings):
@@ -37,14 +42,30 @@ class S3APISettings(BaseSettings):
 
 
 class DownloadConfig(BaseModel):
-    url: str
+    url: Optional[str] = None
     download_dir: str
+    download_filename: str = 'valid_comids_texas_streamflow.nc'
     force: bool = False
     cleanup_after_load: bool = False
     parameter: str = "streamflow"
     workflow_id: str = Field(default="default")
     input_schema: str = "public"
+    # Timestamp filter
+    exclude_column_indexes: Optional[list[int]] = Field(None, description="What column indexes to exclude from the raw streamflow input")
 
+    @field_validator("exclude_column_indexes", mode="before")
+    def parse_exclude_indexes(cls, v: Union[str, int, list[int], None]):
+        if v is None:
+            return None
+        if isinstance(v, list):
+            return [int(x) for x in v]
+        if isinstance(v, int):
+            return [v]
+        if isinstance(v, str):
+            # allow "1,2,5" or "1 2 5"
+            parts = [p for p in v.replace(",", " ").split() if p]
+            return [int(p) for p in parts]
+        raise TypeError(f"Unsupported type for exclude_column_indexes: {type(v)}")
 
 class FlowFromNWMConfig(BaseModel):
     texas_feature_id_list: str = Field(..., alias="texas_faeture_id_list")
@@ -130,6 +151,166 @@ class TqdmToLogger:
 
     def flush(self):
         pass  # Required for file-like API
+
+
+## ESRI STUFF
+
+
+def _to_epoch_ms(dt: pd.Timestamp) -> Optional[int]:
+    if pd.isna(dt):
+        return None
+    if dt.tzinfo is None:
+        dt = dt.tz_localize("UTC")
+    else:
+        dt = dt.tz_convert("UTC")
+    return int((dt - EPOCH).total_seconds() * 1000)
+
+def _esri_geometry_type_from_example(geom: BaseGeometry) -> str:
+    if isinstance(geom, Point):
+        return "esriGeometryPoint"
+    if isinstance(geom, (LineString, MultiLineString)):
+        return "esriGeometryPolyline"
+    if isinstance(geom, (Polygon, MultiPolygon)):
+        return "esriGeometryPolygon"
+    if isinstance(geom, MultiPoint):
+        return "esriGeometryMultipoint"
+    raise ValueError(f"Unsupported geometry type: {type(geom)}")
+
+def _geom_to_esri(geom: BaseGeometry) -> Optional[Dict[str, Any]]:
+    if geom is None or geom.is_empty:
+        return None
+
+    if isinstance(geom, Point):
+        return {"x": geom.x, "y": geom.y}
+
+    if isinstance(geom, LineString):
+        return {"paths": [list(map(list, geom.coords))]}
+
+    if isinstance(geom, MultiLineString):
+        return {"paths": [list(map(list, ls.coords)) for ls in geom.geoms]}
+
+    if isinstance(geom, Polygon):
+        # Exterior ring, then interior rings (holes). ArcGIS accepts ring orientation;
+        # holes should be opposite orientation from shell.
+        rings = [list(map(list, geom.exterior.coords))]
+        rings.extend([list(map(list, r.coords)) for r in geom.interiors])
+        return {"rings": rings}
+
+    if isinstance(geom, MultiPolygon):
+        rings: List[List[List[float]]] = []
+        for poly in geom.geoms:
+            rings.append(list(map(list, poly.exterior.coords)))
+            rings.extend([list(map(list, r.coords)) for r in poly.interiors])
+        return {"rings": rings}
+
+    if isinstance(geom, MultiPoint):
+        return {"points": [[p.x, p.y] for p in geom.geoms]}
+
+    return None
+
+def _esri_field_type(dtype: Any) -> str:
+    # Map pandas dtypes to Esri field types (keep it simple & practical).
+    if pd.api.types.is_integer_dtype(dtype):
+        # Choose OID separately; here general integer -> esriFieldTypeInteger (32-bit)
+        return "esriFieldTypeInteger"
+    if pd.api.types.is_float_dtype(dtype):
+        return "esriFieldTypeDouble"
+    if pd.api.types.is_bool_dtype(dtype):
+        return "esriFieldTypeSmallInteger"
+    if pd.api.types.is_datetime64_any_dtype(dtype):
+        return "esriFieldTypeDate"  # epoch ms
+    return "esriFieldTypeString"
+
+def gdf_to_esri_featureset(gdf: GeoDataFrame,
+                           objectid_field: str = "OBJECTID",
+                           wkid: int = 4326) -> Dict[str, Any]:
+    if gdf.empty:
+        # Minimal empty FeatureSet
+        return {
+            "objectIdFieldName": objectid_field,
+            "geometryType": "esriGeometryPoint",
+            "spatialReference": {"wkid": wkid},
+            "fields": [{"name": objectid_field, "type": "esriFieldTypeOID", "alias": objectid_field}],
+            "features": []
+        }
+
+    # Ensure WGS84 unless you intentionally want something else
+    if gdf.crs is not None and gdf.crs.to_epsg() != wkid:
+        gdf = gdf.to_crs(epsg=wkid)
+
+    # Guarantee an integer OBJECTID
+    if objectid_field not in gdf.columns:
+        # avoid collision with user columns
+        base = 1
+        series = pd.Series(range(base, base + len(gdf)), index=gdf.index, dtype="int64")
+        gdf = gdf.assign(**{objectid_field: series})
+    else:
+        # Coerce to int; fill NaN
+        tmp = gdf[objectid_field].copy()
+        tmp = tmp.fillna(pd.Series(range(1, 1 + len(tmp)), index=gdf.index))
+        gdf[objectid_field] = tmp.astype("int64")
+
+    # Determine geometry type from the first non-empty geometry
+    example_geom = next((g for g in gdf.geometry if g is not None and not g.is_empty), None)
+    if example_geom is None:
+        geometry_type = "esriGeometryPoint"
+    else:
+        geometry_type = _esri_geometry_type_from_example(example_geom)
+
+    # Build fields schema
+    fields = []
+    for col in gdf.columns:
+        if col == gdf.geometry.name:
+            continue
+        if col == objectid_field:
+            fields.append({"name": objectid_field, "type": "esriFieldTypeOID", "alias": objectid_field})
+            continue
+
+        ftype = _esri_field_type(gdf[col].dtype)
+        field_def: Dict[str, Any] = {"name": col, "type": ftype, "alias": col}
+        if ftype == "esriFieldTypeString":
+            # rough length cap—AGOL needs a length for strings
+            max_len = int(min(255, max((len(str(v)) for v in gdf[col].dropna().unique()), default=50)))
+            field_def["length"] = max(1, max_len)
+        fields.append(field_def)
+
+    # Build features array
+    feats = []
+    for idx, row in gdf.iterrows():
+        geom = row[gdf.geometry.name]
+        esri_geom = _geom_to_esri(geom) if isinstance(geom, BaseGeometry) else None
+
+        attrs = {}
+        for col in gdf.columns:
+            if col == gdf.geometry.name:
+                continue
+            val = row[col]
+            if pd.api.types.is_datetime64_any_dtype(gdf[col].dtype):
+                if pd.isna(val):
+                    attrs[col] = None
+                else:
+                    # Convert to epoch ms UTC
+                    attrs[col] = _to_epoch_ms(pd.to_datetime(val))
+            else:
+                # JSON-serializable best-effort
+                if pd.isna(val):
+                    attrs[col] = None
+                else:
+                    attrs[col] = val.item() if hasattr(val, "item") else val
+
+        feats.append({"attributes": attrs, "geometry": esri_geom})
+
+    fs = {
+        "objectIdFieldName": objectid_field,
+        "geometryType": geometry_type,
+        "spatialReference": {"wkid": wkid},
+        "fields": fields,
+        "features": feats,
+    }
+    return fs
+
+
+#### ESRI STUFF ends
 
 def merge_nested_dict(base: dict, updates: dict) -> None:
     for key, value in updates.items():
@@ -363,7 +544,31 @@ async def fn_write_gdf_to_s3_esrijson(gdf, str_bucket_name: str, str_s3_key: str
         logger.info(f"  -- Uploaded ESRI JSON to s3://{str_bucket_name}/{str_s3_key}")
 
 # ----------------------
+async def fn_write_gdf_to_s3_esri_featureset(gdf, str_bucket_name: str, str_s3_key: str):
+    """
+    Writes a proper Esri FeatureSet (Feature Collection) JSON to S3.
+    Suitable for ArcGIS Online 'Add layer from web' (Feature Collection) or ArcGIS JS API.
+    """
 
+    # Ensure CRS and schema, convert to Esri FeatureSet
+    fs_dict = gdf_to_esri_featureset(gdf, objectid_field="OBJECTID", wkid=4326)
+    body = json.dumps(fs_dict, ensure_ascii=False).encode("utf-8")
+
+    s3settings = S3APISettings()
+    session = get_session()
+    async with session.create_client(
+        "s3",
+        region_name="us-east-1",
+        aws_access_key_id=s3settings.access_key_id,
+        aws_secret_access_key=s3settings.secret_access_key,
+    ) as s3:
+        await s3.put_object(
+            Bucket=str_bucket_name,
+            Key=str_s3_key,
+            Body=body,
+            ContentType="application/json; charset=utf-8",
+            CacheControl="no-cache",
+        )
 
 
 def fn_get_dataframe_from_postgresql(table: str, db: dict, workflow_id: str | None = "default") -> pd.DataFrame:

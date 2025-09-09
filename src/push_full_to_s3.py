@@ -29,6 +29,7 @@ from utils import (
     fn_write_gdf_to_s3,
     fn_write_gdf_to_file,
     fn_write_gdf_to_s3_esrijson,
+    fn_write_gdf_to_s3_esri_featureset,
 )
 from typing import Optional
 import logging
@@ -347,17 +348,17 @@ async def fn_merged_view(cfg: FASTConfig, b_print_output: bool = False, foreign_
             if s3.publish_bridges:
                 s3_tasks.append(fn_write_gdf_to_s3(gdf_s_bridge_warning_pnt, s3.publish_bucket, f"{sub}bridge_warning_pnts.geojson"))
                 if s3.publish_esri_json:
-                    s3_tasks.append(fn_write_gdf_to_s3_esrijson(gdf_s_bridge_warning_pnt, s3.publish_bucket, f"{sub}bridge_warning_pnts_esrijson.json"))
+                    s3_tasks.append(fn_write_gdf_to_s3_esri_featureset(gdf_s_bridge_warning_pnt, s3.publish_bucket, f"{sub}bridge_warning_pnts_esrijson.json"))
 
             if s3.publish_roads:
                 s3_tasks.append(fn_write_gdf_to_s3(gdf_s_flood_road_trim_ln, s3.publish_bucket, f"{sub}flood_road_trim_ln.geojson"))
                 if s3.publish_esri_json:
-                    s3_tasks.append(fn_write_gdf_to_s3_esrijson(gdf_s_flood_road_trim_ln, s3.publish_bucket, f"{sub}flood_road_trim_ln_esrijson.json"))
+                    s3_tasks.append(fn_write_gdf_to_s3_esri_featureset(gdf_s_flood_road_trim_ln, s3.publish_bucket, f"{sub}flood_road_trim_ln_esrijson.json"))
 
             if s3.publish_inundation:
                 s3_tasks.append(fn_write_gdf_to_s3(gdf_s_flood_merge_ar, s3.publish_bucket, f"{sub}flood_ar.geojson"))
                 if s3.publish_esri_json:
-                    s3_tasks.append(fn_write_gdf_to_s3_esrijson(gdf_s_flood_merge_ar, s3.publish_bucket, f"{sub}flood_ar_esrijson.json"))
+                    s3_tasks.append(fn_write_gdf_to_s3_esri_featureset(gdf_s_flood_merge_ar, s3.publish_bucket, f"{sub}flood_ar_esrijson.json"))
 
         # ---------- LIVE ----------
         if s3.publish_live:
@@ -368,17 +369,17 @@ async def fn_merged_view(cfg: FASTConfig, b_print_output: bool = False, foreign_
             if s3.publish_bridges:
                 s3_tasks.append(fn_write_gdf_to_s3(gdf_s_bridge_warning_pnt, s3.publish_bucket, f"{sub}bridge_warning_pnts.geojson"))
                 if s3.publish_esri_json:
-                    s3_tasks.append(fn_write_gdf_to_s3_esrijson(gdf_s_bridge_warning_pnt, s3.publish_bucket, f"{sub}bridge_warning_pnts_esrijson.json"))
+                    s3_tasks.append(fn_write_gdf_to_s3_esri_featureset(gdf_s_bridge_warning_pnt, s3.publish_bucket, f"{sub}bridge_warning_pnts_esrijson.json"))
 
             if s3.publish_roads:
                 s3_tasks.append(fn_write_gdf_to_s3(gdf_s_flood_road_trim_ln, s3.publish_bucket, f"{sub}flood_road_trim_ln.geojson"))
                 if s3.publish_esri_json:
-                    s3_tasks.append(fn_write_gdf_to_s3_esrijson(gdf_s_flood_road_trim_ln, s3.publish_bucket, f"{sub}flood_road_trim_ln_esrijson.json"))
+                    s3_tasks.append(fn_write_gdf_to_s3_esri_featureset(gdf_s_flood_road_trim_ln, s3.publish_bucket, f"{sub}flood_road_trim_ln_esrijson.json"))
 
             if s3.publish_inundation:
                 s3_tasks.append(fn_write_gdf_to_s3(gdf_s_flood_merge_ar, s3.publish_bucket, f"{sub}flood_ar.geojson"))
                 if s3.publish_esri_json:
-                    s3_tasks.append(fn_write_gdf_to_s3_esrijson(gdf_s_flood_merge_ar, s3.publish_bucket, f"{sub}flood_ar_esrijson.json"))
+                    s3_tasks.append(fn_write_gdf_to_s3_esri_featureset(gdf_s_flood_merge_ar, s3.publish_bucket, f"{sub}flood_ar_esrijson.json"))
 
     # 🔄 Run all S3 uploads concurrently
     await asyncio.gather(*s3_tasks)

@@ -20,19 +20,21 @@ def log_duration(start: float, label: str):
     elapsed = time.time() - start
     logger.debug(f" {label} took: {datetime.timedelta(seconds=int(elapsed))}")
 
-def run_fast_realtime_update(cfg: FASTConfig, print_output: bool = False, use_nwm: bool = True):
+def run_fast_realtime_update(cfg: FASTConfig, print_output: bool = False, use_nwm: bool = True, enforce_update: bool= False):
     warnings.filterwarnings("ignore", category=UserWarning)
+    
     logger.info("+==================== FAST REALTIME ====================+")
     logger.info(f"  -- DB: {cfg.database.dbname} @ {cfg.database.host}:{cfg.database.port}")
     logger.info("+------------------------------------------------------+")
 
     step_start = time.time()
     needs_update = False
-    enforce_update = False
-    if cfg.sql or cfg.download or cfg.flow_from_nwm:
-        needs_update = fn_determine_if_database_current(cfg, print_output)
-    # TEMP override for testing
-    # needs_update = True # FIXME: delete when deployed
+    if not enforce_update:
+        if cfg.sql or cfg.download or cfg.flow_from_nwm:
+            needs_update = fn_determine_if_database_current(cfg, print_output)
+    else:
+        needs_update = enforce_update
+
     log_duration(step_start, "Step 1: Check for update")
 
     if (cfg.flow_from_nwm and cfg.flow_from_nwm.force) or (cfg.download and cfg.download.force):

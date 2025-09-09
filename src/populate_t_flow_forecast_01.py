@@ -50,7 +50,7 @@ def fn_populate_t_flow_forecast(cfg: FASTConfig, b_print_output: bool = False):
 
     url = cfg.download.url
     download_dir = cfg.download.download_dir
-    local_path = os.path.join(download_dir, 'valid_comids_texas_streamflow.nc')
+    local_path = os.path.join(download_dir, cfg.download.download_filename)
 
     logger.debug('Checking if forecast file needs to be downloaded')
     should_download = cfg.download.force or not os.path.exists(local_path)
@@ -58,6 +58,8 @@ def fn_populate_t_flow_forecast(cfg: FASTConfig, b_print_output: bool = False):
     if should_download:
         logger.info('Downloading netCDF forecast')
         try:
+            if not url:
+                raise KeyError("download.URL is NULL. It must be specified in the config if the local file is not available!")
             response = requests.get(url, stream=True)
             response.raise_for_status()
             total_size = int(response.headers.get('content-length', 0))
@@ -117,7 +119,21 @@ def fn_populate_t_flow_forecast(cfg: FASTConfig, b_print_output: bool = False):
                 text("DELETE FROM t_flow_forecast WHERE workflow_id = :workflow_id"),
                 {"workflow_id": df_final['workflow_id'].iloc[0]},
             )
-        df_final = df_final.drop(columns=['flow_t18'], errors='ignore')
+
+        flow_cols = [c for c in df_final.columns if c.startswith("flow_t")]
+        if cfg.download.exclude_column_indexes:
+            drop_by_idx = [i for i in cfg.download.exclude_column_indexes if 0 <= i < len(flow_cols)]
+            to_drop = [flow_cols[i] for i in drop_by_idx]
+            if to_drop:
+                df_final = df_final.drop(columns=to_drop)
+                # refresh in-place order, still no sorting
+                flow_cols = [c for c in df_final.columns if c.startswith("flow_t")]
+            
+        # Drop flow_t00 if present
+        if len(df_final.columns) > 18:
+            msg = "Maximum of 18 streamflow timesteps are allowed right now. Please be patient until the updated methods are done."
+            raise ValueError(msg)
+
         # Insert new data
         df_final.to_sql('t_flow_forecast', engine, if_exists='append', index=False)
         logger.info("Data successfully pushed to PostgreSQL")
