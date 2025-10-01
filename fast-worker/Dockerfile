@@ -68,10 +68,18 @@ RUN conda clean -afy && rm -rf /var/lib/apt/lists/*
 # Ensure conda is in PATH
 ENV PATH /opt/conda/bin:$PATH
 
-# Copy your source
-COPY ../src /fast_realtime/src
-COPY ../inputs /fast_realtime/inputs
-COPY ../sql /fast_realtime/sql
+# # Copy your source
+# COPY ../src /fast_realtime/src
+# COPY ../inputs /fast_realtime/inputs
+# COPY ../sql /fast_realtime/sql
+
+
+# Do just mount points
+RUN mkdir -p /fast_realtime/src \
+             /fast_realtime/inputs \
+             /fast_realtime/sql \
+             /fast_realtime/output \
+             /fast_realtime/data
 
 # Add build timestamp
 RUN echo "Rebuilt at $(date)" > /fast_realtime/last_built.txt

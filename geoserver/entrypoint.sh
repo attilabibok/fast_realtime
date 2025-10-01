@@ -1,6 +1,7 @@
 #!/bin/bash
+set -euo pipefail
 
-# Start GeoServer in the background using the default CMD
+# Start GeoServer in the background
 catalina.sh run &
 
 # Wait for GeoServer to be available
@@ -9,8 +10,9 @@ until curl -s -u admin:geoserver http://localhost:8080/geoserver/rest/about/vers
   sleep 5
 done
 
-# Run the init script
-bash /init.sh
+echo "GeoServer is up — running init…"
+# Run the init with xtrace for visibility
+bash -x /init.sh || { echo "Init failed"; exit 1; }
 
-# Tail logs to keep container running
+# Keep container alive on Tomcat
 wait -n
