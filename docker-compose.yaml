@@ -26,23 +26,33 @@ services:
     entrypoint: ["/bin/bash", "/postgres_init/restore_dumps.sh"]
 
 # geoserver - provides the WFS and WMTS layers, connects directly to the postgis db
-#   geoserver:
-#     build: ./geoserver
-#     container_name: geoserver
-#     environment:
-#       - GEOSERVER_ADMIN_USER=admin
-#       - GEOSERVER_ADMIN_PASSWORD=geoserver
-#       - STABLE_EXTENSION=gdal,wps,css,postgis,postgresql,sql
-#       - CORS_ENABLED=true
-#       - CORS_ALLOWED_METHODS=GET,POST,PUT,HEAD,OPTIONS
-#     ports:
-#       - "8080:8080"
-#     volumes:
-#       - ./geoserver_data:/opt/geoserver/data_dir
-#     depends_on:
-#       - postgis
-#       - postgis-init
-#     restart: unless-stopped
+  fast-geoserver:
+    build: ./geoserver
+    container_name: geoserver
+    environment:
+      WORKFLOWS: ds_sr da_sr_nc nwm_sr nwm_sr_nc
+      # GEOSERVER_AUTH: admin:txdot # use secrets in deployment
+      GEOSERVER_URL: http://localhost:8080/geoserver
+      DESIRED_ADMIN_USER: txdot_admin
+      DESIRED_ADMIN_PASS: txdot_geoserver
+      PG_HOST: postgis
+      PG_PORT: "5432"
+      PG_DB: TXFull
+      PG_USER: admin # use secrets in deployment
+      PG_PASS: admin123 # use secrets in deployment
+      STABLE_EXTENSION: gdal,wps,css,postgis,postgresql,sql
+      CORS_ENABLED: "true"
+      CORS_ALLOWED_METHODS: GET,POST,PUT,HEAD,OPTIONS
+      VIEWER_USER: viewer # use secrets in deployment
+      VIEWER_PASS: txdot # use secrets in deployment
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./geoserver_data:/opt/geoserver/data_dir
+    depends_on:
+      - postgis
+      - postgis-init
+    restart: unless-stopped
 
 # # mapproxy to cache tiles - only needed for WMTS layers.
 #   mapproxy:
@@ -76,9 +86,14 @@ services:
       - postgis
     environment:
       DB_PASSWORD: admin123
+      #FAST_S3_ACCESS_KEY_ID: 
+      #FAST_S3_SECRET_ACCESS_KEY:
     volumes:
-      - ./output:/fast_realtime/output # attach folder to see the outputs on the host machine
-      - ./data:/fast_realtime/data # attach folder to see the outputs on the host machine
+      - ./output:/fast_realtime/output   # attach folder to see the outputs on the host machine
+      - ./data:/fast_realtime/data       # attach folder to see the outputs on the host machine
+      - ./src:/fast_realtime/src         # mount src folder
+      - ./inputs:/fast_realtime/inputs   # mount inputs folder
+      - ./sql:/fast_realtime/sql         # mount sql folder
     working_dir: /app
     command: ["tail", "-f", "/dev/null"]
     restart: on-failure
