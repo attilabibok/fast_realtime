@@ -71,7 +71,19 @@ until curl -fsS "${GEOSERVER_URL}/web/" >/dev/null 2>&1; do
   echo "Waiting for GeoServer web UI…"
   sleep 2
 done
-
+# ================================
+# Wait for PostGIS to start
+# ================================
+wait_pg() {
+  local tries=60
+  while (( tries-- > 0 )); do
+    (exec 3<>/dev/tcp/"$PG_HOST"/"$PG_PORT") >/dev/null 2>&1 && { exec 3>&- 3<&-; return 0; }
+    sleep 1
+  done
+  echo "[FATAL] PG $PG_HOST:$PG_PORT not reachable after 60s" >&2
+  exit 1
+}
+wait_pg
 # wait_rest_ready() {
 #   local tries="${1:-100}" code
 #   while (( tries-- > 0 )); do
@@ -315,7 +327,6 @@ EOF
 done
 
 echo ">>> GeoServer publishing complete (workflows: ${WORKFLOWS})"
-
 # ================================
 # 6) Security hardening (read-only viewer + public read) — idempotent
 # ================================
@@ -326,13 +337,13 @@ _has_creds() {
   probe_backoff "$creds" 3 1 >/dev/null 2>&1
 }
 
-# 6.0 Remove masterpw.info warning file if present
+# remove masterpw warning if present
 if [ -f /opt/geoserver/data_dir/security/masterpw.info ]; then
   echo "Removing security/masterpw.info (security risk warning)…"
   rm -f /opt/geoserver/data_dir/security/masterpw.info || true
 fi
 
-# 6.1 Ensure a 'viewer' user exists (password from env). This user will be READ-ONLY.
+# ensure 'viewer' user exists
 if ! curl -fsS -u "$AUTH" \
     "$GEOSERVER_URL/rest/security/usergroup/service/default/users/${VIEWER_USER}.json" >/dev/null 2>&1; then
   curl -fsS -u "$AUTH" -X POST -H "Content-Type: application/json" \
@@ -341,72 +352,60 @@ if ! curl -fsS -u "$AUTH" \
   echo "Created user '${VIEWER_USER}'"
 fi
 
-# 6.2 Create a dedicated ROLE_VIEWER and assign it to 'viewer' (idempotent)
+# ---- roles: use the /rest/security prefix (not /rest/roles)
+# create ROLE_VIEWER and assign to viewer (no-op if exist)
 curl -fsS -u "$AUTH" -X POST \
-  "$GEOSERVER_URL/rest/roles/role/ROLE_VIEWER" >/dev/null 2>&1 || true
+  "$GEOSERVER_URL/rest/security/roles/role/ROLE_VIEWER" >/dev/null 2>&1 || true
 curl -fsS -u "$AUTH" -X POST \
-  "$GEOSERVER_URL/rest/roles/role/ROLE_VIEWER/user/${VIEWER_USER}/" >/dev/null 2>&1 || true
+  "$GEOSERVER_URL/rest/security/roles/role/ROLE_VIEWER/user/${VIEWER_USER}/" >/dev/null 2>&1 || true
 
-# 6.2.b Ensure viewer is NOT admin (safe even if not present)
+# make sure viewer is not admin
 curl -fsS -u "$AUTH" -X DELETE \
-  "$GEOSERVER_URL/rest/roles/role/ADMIN/user/${VIEWER_USER}/" >/dev/null 2>&1 || true
+  "$GEOSERVER_URL/rest/security/roles/role/ADMIN/user/${VIEWER_USER}/" >/dev/null 2>&1 || true
 curl -fsS -u "$AUTH" -X DELETE \
-  "$GEOSERVER_URL/rest/roles/role/GROUP_ADMIN/user/${VIEWER_USER}/" >/dev/null 2>&1 || true
+  "$GEOSERVER_URL/rest/security/roles/role/GROUP_ADMIN/user/${VIEWER_USER}/" >/dev/null 2>&1 || true
 
-# 6.3 Layer ACLs: READ for anonymous + ROLE_VIEWER, WRITE/ADMIN for ADMIN only
-# If you do NOT want public access, remove ROLE_ANONYMOUS below.
-cat >/tmp/acl_layers.xml <<'XML'
-<rules>
-  <!-- READ for public (anonymous) and logged-in viewer role -->
-  <rule resource="*.*.r">ROLE_ANONYMOUS,ROLE_VIEWER</rule>
+# ---- ACL helpers: POST to create individual rules (avoid 409), then PUT later if needed
+_post_acl_rule() {  # _post_acl_rule <which:services|layers> <resource> <roles>
+  local which="$1" resource="$2" roles="$3"
+  cat >/tmp/_acl_rule.xml <<EOF
+<rule><resource>${resource}</resource><roles>${roles}</roles></rule>
+EOF
+  curl -fsS -u "$AUTH" -X POST -H "Content-Type: application/xml" \
+    --data-binary @/tmp/_acl_rule.xml \
+    "$GEOSERVER_URL/rest/security/acl/${which}" >/dev/null 2>&1 || true
+}
 
-  <!-- WRITE & ADMIN restricted to admins only -->
-  <rule resource="*.*.w">ADMIN</rule>
-  <rule resource="*.*.a">ADMIN</rule>
-</rules>
-XML
-curl -fsS -u "$AUTH" -X PUT -H "Content-Type: application/xml" \
-  --data-binary @/tmp/acl_layers.xml \
-  "$GEOSERVER_URL/rest/security/acl/layers.xml" >/dev/null || true
+# LAYER ACLs (lower-case pattern semantics handled by GeoServer; these are OK)
+# public+viewer READ; admin WRITE/ADMIN (cover both role spellings)
+_post_acl_rule layers "*.*.r" "ROLE_ANONYMOUS,ROLE_VIEWER"
+_post_acl_rule layers "*.*.w" "ADMIN,ROLE_ADMINISTRATOR"
+_post_acl_rule layers "*.*.a" "ADMIN,ROLE_ADMINISTRATOR"
 
-# 6.4 Service ACLs:
-# - WMS and non-transactional WFS allowed to public+viewer
-# - WFS Transaction (WFS-T) locked to ADMIN
-# - WPS entirely locked to ADMIN
-cat >/tmp/acl_services.xml <<'XML'
-<rules>
-  <rule resource="wms.*">ROLE_ANONYMOUS,ROLE_VIEWER</rule>
-  <rule resource="wfs.*">ROLE_ANONYMOUS,ROLE_VIEWER</rule>
-  <rule resource="wfs.Transaction">ADMIN</rule>
-  <rule resource="wps.*">ADMIN</rule>
-</rules>
-XML
-curl -fsS -u "$AUTH" -X PUT -H "Content-Type: application/xml" \
-  --data-binary @/tmp/acl_services.xml \
-  "$GEOSERVER_URL/rest/security/acl/services.xml" >/dev/null || true
+# SERVICE ACLs — **must be lower-case** keys
+_post_acl_rule services "wms.*"            "ROLE_ANONYMOUS,ROLE_VIEWER"
+_post_acl_rule services "wfs.*"            "ROLE_ANONYMOUS,ROLE_VIEWER"
+_post_acl_rule services "ows.*"            "ROLE_ANONYMOUS,ROLE_VIEWER"
+_post_acl_rule services "wfs.Transaction"  "ADMIN,ROLE_ADMINISTRATOR"
+_post_acl_rule services "wps.*"            "ADMIN,ROLE_ADMINISTRATOR"
 
-# 6.5 (Optional #1) Force WFS to read-only at service level (belt-and-suspenders)
+# WFS read-only (belt-and-suspenders)
 curl -fsS -u "$AUTH" -X PUT -H "Content-Type: application/xml" \
   -d '<wfs><serviceLevel>Basic</serviceLevel></wfs>' \
   "$GEOSERVER_URL/rest/services/wfs/settings" >/dev/null || true
 
-# 6.6 (Optional #2) Hide secured resources from capabilities for non-authorized users
+# Hide secured resources from capabilities
 curl -fsS -u "$AUTH" -X PUT -H "Content-Type: application/xml" \
   -d '<catalog><mode>HIDE</mode></catalog>' \
   "$GEOSERVER_URL/rest/security/acl/catalog.xml" >/dev/null || true
 
-# 6.7 Ensure desired admin (via env) — ONLY if factory admin works
-# Env inputs:
-#   DESIRED_ADMIN_USER (e.g., admin | txdot_admin)
-#   DESIRED_ADMIN_PASS (e.g., txdot_geoserver | SuperSecret123)
+# Ensure desired admin (if factory admin still available)
 _desired_admin="${DESIRED_ADMIN_USER:-admin}"
 _desired_pass="${DESIRED_ADMIN_PASS:-geoserver}"
 
 if _has_creds "admin:geoserver"; then
   echo "[security] Factory admin available; applying desired admin settings from env…"
-
   if [[ "${_desired_admin}" == "admin" ]]; then
-    # Rotate admin password to desired value (idempotent)
     if ! _has_creds "admin:${_desired_pass}"; then
       curl -fsS -u admin:geoserver \
         -X PUT -H "Content-Type: application/json" \
@@ -420,7 +419,6 @@ if _has_creds "admin:geoserver"; then
       echo "[security] WARNING: could not verify desired 'admin' password."
     fi
   else
-    # Create/enable the desired admin user, grant ADMIN (idempotent)
     curl -fsS -u admin:geoserver -X POST -H "Content-Type: application/json" \
       -d "{\"user\":{\"userName\":\"${_desired_admin}\",\"password\":\"${_desired_pass}\",\"enabled\":true}}" \
       "${GEOSERVER_URL}/rest/security/usergroup/users" >/dev/null 2>&1 || true
@@ -428,7 +426,6 @@ if _has_creds "admin:geoserver"; then
     curl -fsS -u admin:geoserver -X POST \
       "${GEOSERVER_URL}/rest/security/roles/role/ADMIN/user/${_desired_admin}" >/dev/null 2>&1 || true
 
-    # Switch AUTH to the desired admin if it authenticates
     if _has_creds "${_desired_admin}:${_desired_pass}"; then
       AUTH="${_desired_admin}:${_desired_pass}"
       echo "[security] AUTH switched to ${_desired_admin}."
@@ -440,7 +437,7 @@ else
   echo "[security] Skipping desired-admin operations: 'admin:geoserver' not available."
 fi
 
-# 6.8 Disable factory 'admin' — only if we created a non-'admin' desired admin and can auth as it
+# Disable factory 'admin' if we have a non-admin desired admin that works
 if [[ "${_desired_admin}" != "admin" ]] && _has_creds "${_desired_admin}:${_desired_pass}"; then
   curl -fsS -u "${_desired_admin}:${_desired_pass}" \
     -X POST -H "Content-Type: application/json" \
@@ -451,60 +448,5 @@ else
   echo "[security] Skipping disable of factory 'admin' (either desired admin is 'admin' or cannot auth)."
 fi
 
-# 6.9 Further hardening to make it prod-ready
-
-# 6.9.1 Switch default User/Group service to Digest (idempotent-ish)
-# Find the default U/G service name:
-UGS_NAME="$(curl -fsS -u "$AUTH" -H "Accept: application/json" \
-  "$GEOSERVER_URL/rest/security/usergroupservices" \
-  | jq -r '..|.name? // empty' | head -n1)"
-
-if [ -n "$UGS_NAME" ]; then
-  tmpfile="$(mktemp)"
-  curl -fsS -u "$AUTH" -H "Accept: application/json" \
-    "$GEOSERVER_URL/rest/security/usergroupservices/${UGS_NAME}" > "$tmpfile" || true
-
-  if grep -q '"passwordEncoderName"' "$tmpfile"; then
-    if ! grep -q '"passwordEncoderName":[[:space:]]*"digestPasswordEncoder"' "$tmpfile"; then
-      jq '(.["org.geoserver.security.xml.XMLUserGroupServiceConfig"].passwordEncoderName // .passwordEncoderName)="digestPasswordEncoder"' \
-        "$tmpfile" > "${tmpfile}.new" 2>/dev/null || cp "$tmpfile" "${tmpfile}.new"
-      curl -fsS -u "$AUTH" -X PUT -H "Content-Type: application/json" \
-        -d @"${tmpfile}.new" \
-        "$GEOSERVER_URL/rest/security/usergroupservices/${UGS_NAME}" >/dev/null || true
-      echo "Set User/Group service '${UGS_NAME}' password encoder to Digest."
-      echo "NOTE: Recode existing user passwords via UI: Security → Users, Groups, Roles → default → Passwords."
-    fi
-  fi
-  rm -f "$tmpfile" "${tmpfile}.new" 2>/dev/null || true
-fi
-
-# 6.9.2 CSRF whitelist and hide FS outside data dir (useful in containers/proxies)
-: "${GEOSERVER_CSRF_WHITELIST:=}"  # supply as env in Compose/K8s
-: "${GEOSERVER_FILEBROWSER_HIDEFS:=true}"
-export GEOSERVER_FILEBROWSER_HIDEFS
-
-# 6.9.3 (Optional) Make WFS read-only and keep WPS admin-only
-curl -fsS -u "$AUTH" -X PUT -H "Content-Type: application/xml" \
-  -d '<wfs><serviceLevel>Basic</serviceLevel></wfs>' \
-  "$GEOSERVER_URL/rest/services/wfs/settings" >/dev/null || true
-
-cat >/tmp/acl_services.xml <<'XML'
-<rules>
-  <rule resource="wms.*">ROLE_ANONYMOUS,ROLE_VIEWER</rule>
-  <rule resource="wfs.*">ROLE_ANONYMOUS,ROLE_VIEWER</rule>
-  <rule resource="wfs.Transaction">ADMIN</rule>
-  <rule resource="wps.*">ADMIN</rule>
-</rules>
-XML
-curl -fsS -u "$AUTH" -X PUT -H "Content-Type: application/xml" \
-  --data-binary @/tmp/acl_services.xml \
-  "$GEOSERVER_URL/rest/security/acl/services.xml" >/dev/null || true
-
-# 6.x.4 (Optional) Switch logging to PRODUCTION via REST
-# (You can also do this under Settings → Global → Logging profile)
-cat >/tmp/logging.json <<'JSON'
-{"logging":{"level":"DEFAULT_LOGGING","stdOutLogging":"false","location":"logs/geoserver.log","profiler":"PRODUCTION_LOGGING"}}
-JSON
-curl -fsS -u "$AUTH" -X PUT -H "Content-Type: application/json" \
-  -d @/tmp/logging.json \
-  "$GEOSERVER_URL/rest/logging" >/dev/null || true
+# Reload config so ACL + roles take effect right away
+curl -fsS -u "$AUTH" -X POST "$GEOSERVER_URL/rest/reload" >/dev/null || true
