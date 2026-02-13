@@ -113,14 +113,17 @@ def fn_populate_t_flow_forecast(cfg: FASTConfig, b_print_output: bool = False):
             f"postgresql://{creds['user']}:{creds['password']}@{creds['host']}:{creds['port']}/{creds['dbname']}"
         )
         engine = create_engine(connection_string)
+        input_schema = cfg.download.input_schema or "public"
         # Clean up existing rows for this workflow
         with engine.begin() as conn:
             conn.execute(
-                text("DELETE FROM t_flow_forecast WHERE workflow_id = :workflow_id"),
+                text(f"DELETE FROM {input_schema}.t_flow_forecast WHERE workflow_id = :workflow_id"),
                 {"workflow_id": df_final['workflow_id'].iloc[0]},
             )
 
         flow_cols = [c for c in df_final.columns if c.startswith("flow_t")]
+        drop_by_idx = []
+        to_drop = []
         if cfg.download.exclude_column_indexes:
             drop_by_idx = [i for i in cfg.download.exclude_column_indexes if 0 <= i < len(flow_cols)]
             to_drop = [flow_cols[i] for i in drop_by_idx]
@@ -129,13 +132,53 @@ def fn_populate_t_flow_forecast(cfg: FASTConfig, b_print_output: bool = False):
                 # refresh in-place order, still no sorting
                 flow_cols = [c for c in df_final.columns if c.startswith("flow_t")]
             
-        # Drop flow_t00 if present
-        if len(df_final.columns) > 18:
-            msg = "Maximum of 18 streamflow timesteps are allowed right now. Please be patient until the updated methods are done."
+        max_timesteps = 18
+        if len(flow_cols) > max_timesteps:
+            meta_cols = [c for c in df_final.columns if not c.startswith("flow_t")]
+            msg = (
+                f"Maximum of {max_timesteps} streamflow timesteps are allowed right now, "
+                f"but prepared {len(flow_cols)} flow columns (total columns={len(df_final.columns)}). "
+                f"workflow_id={df_final['workflow_id'].iloc[0]!r}; "
+                f"exclude_column_indexes={cfg.download.exclude_column_indexes}; "
+                f"dropped_indexes={drop_by_idx}; dropped_columns={to_drop}; "
+                f"non_flow_columns={meta_cols}; "
+                f"flow_columns_sample={flow_cols[:6]}...{flow_cols[-3:]}"
+            )
+            raise ValueError(msg)
+
+        # Preflight: ensure generated flow columns match DB schema for this table.
+        with engine.connect() as conn:
+            db_flow_cols = [
+                row[0]
+                for row in conn.execute(
+                    text(
+                        """
+                        SELECT column_name
+                        FROM information_schema.columns
+                        WHERE table_schema = :schema_name
+                          AND table_name = 't_flow_forecast'
+                          AND column_name LIKE 'flow_t%%'
+                        ORDER BY ordinal_position
+                        """
+                    ),
+                    {"schema_name": input_schema},
+                )
+            ]
+
+        extra_flow_cols = [c for c in flow_cols if c not in db_flow_cols]
+        missing_flow_cols = [c for c in db_flow_cols if c not in flow_cols]
+        if extra_flow_cols or missing_flow_cols:
+            msg = (
+                "Flow column mismatch between prepared dataset and DB schema. "
+                f"schema={input_schema!r}; workflow_id={df_final['workflow_id'].iloc[0]!r}; "
+                f"prepared_flow_cols={flow_cols}; db_flow_cols={db_flow_cols}; "
+                f"extra_prepared={extra_flow_cols}; missing_prepared={missing_flow_cols}; "
+                f"exclude_column_indexes={cfg.download.exclude_column_indexes}"
+            )
             raise ValueError(msg)
 
         # Insert new data
-        df_final.to_sql('t_flow_forecast', engine, if_exists='append', index=False)
+        df_final.to_sql('t_flow_forecast', engine, schema=input_schema, if_exists='append', index=False)
         logger.info("Data successfully pushed to PostgreSQL")
 
         # FIXME: DELETE THIS when in production. Ensure indexes exist

@@ -19,10 +19,19 @@ WORKSPACE="${WORKSPACE:-txdot}"
 STORE_NAME="${STORE_NAME:-txfull_pg}"
 SRS="${SRS:-EPSG:4326}"
 
-WORKFLOWS="${WORKFLOWS:-ds_sr da_sr_nc nwm_sr nwm_sr_nc}"
+WORKFLOWS="${WORKFLOWS:-da_sr da_sr_nc nwm_sr nwm_sr_nc}"
 
 VIEWER_USER="${VIEWER_USER:-viewer}"
 VIEWER_PASS="${VIEWER_PASS:-txdot}"
+
+# Texas bbox
+
+SRS="${SRS:-EPSG:4326}"
+TX_MINX=${TX_MINX:--107}
+TX_MINY=${TX_MINY:-24}
+TX_MAXX=${TX_MAXX:- -92}
+TX_MAXY=${TX_MAXY:-37}
+
 
 # Districts
 DISTRICTS="$(cat <<'EOF'
@@ -188,6 +197,35 @@ fi
 # ================================
 # 3) Publisher helpers
 # ================================
+force_fixed_crs_and_bbox() {
+  local ws="$1" store="$2" layer="$3"
+
+  # Ensure feature type has nativeCRS/srs and both bboxes set to fixed Texas extent
+  curl -fsS -u "$AUTH" -XPUT \
+    -H "Content-Type: application/xml" \
+    -d "<featureType>
+           <enabled>true</enabled>
+           <srs>${SRS}</srs>
+           <nativeCRS>${SRS}</nativeCRS>
+
+           <nativeBoundingBox>
+             <minx>${TX_MINX}</minx>
+             <miny>${TX_MINY}</miny>
+             <maxx>${TX_MAXX}</maxx>
+             <maxy>${TX_MAXY}</maxy>
+             <crs>${SRS}</crs>
+           </nativeBoundingBox>
+
+           <latLonBoundingBox>
+             <minx>${TX_MINX}</minx>
+             <miny>${TX_MINY}</miny>
+             <maxx>${TX_MAXX}</maxx>
+             <maxy>${TX_MAXY}</maxy>
+             <crs>EPSG:4326</crs>
+           </latLonBoundingBox>
+         </featureType>" \
+    "${GEOSERVER_URL}/rest/workspaces/${ws}/datastores/${store}/featuretypes/${layer}.xml" >/dev/null
+}
 create_sqlview_layer () {
   local layer_name="$1"
   local sql="$2"
@@ -234,6 +272,17 @@ EOF
       -d "<layer><defaultStyle><name>${default_style}</name></defaultStyle></layer>" \
       "$GEOSERVER_URL/rest/layers/${WORKSPACE}:${layer_name}" >/dev/null
   fi
+  # set style/projection policy)
+  curl -fsS -u "$AUTH" -XPUT \
+    -H "Content-Type: application/xml" \
+    -d "<layer>
+          <enabled>true</enabled>
+          <projectionPolicy>FORCE_DECLARED</projectionPolicy>
+        </layer>" \
+    "${GEOSERVER_URL}/rest/layers/${WORKSPACE}:${layer_name}" >/dev/null
+
+  # Force fixed CRS + fixed Texas bbox (no bbox computation)
+  force_fixed_crs_and_bbox "${WORKSPACE}" "${STORE_NAME}" "${layer_name}"
 }
 
 # ================================
@@ -263,6 +312,15 @@ for WF in ${WORKFLOWS}; do
      WHERE COALESCE(workflow_id,'default')='${WF}'" \
     "id" "TX Bridge Warnings (wf=${WF})"
 
+  create_sqlview_layer \
+    "${WF}_tx_lwc" \
+    "SELECT lwc_id_tx AS id, geometry, lwc_id, hydro_id, model_id, feature_id,
+            name, osm_id, fclass, q_overtopped, q_0_5_ft, q_2_ft, q_5_ft,
+            max_flow, is_overtopped, model_run_time, workflow_id, source_db
+     FROM public.mv_lwc_pnt_tx
+     WHERE COALESCE(workflow_id,'default')='${WF}'" \
+    "id" "TX Low Water Crossings (wf=${WF})"
+
   # Per district
   while read -r DID DCODE SCHEMA; do
     create_sqlview_layer \
@@ -289,6 +347,16 @@ for WF in ${WORKFLOWS}; do
        FROM ${SCHEMA}.s_bridge_warning_pnt
        WHERE COALESCE(workflow_id,'default')='${WF}'" \
       "id" "${DCODE} Bridge Warnings (wf=${WF})"
+
+    create_sqlview_layer \
+      "${WF}_${DCODE}_lwc" \
+      "SELECT (lwc_id::text || '_' || COALESCE(workflow_id,'default')) AS id,
+              geometry, lwc_id, hydro_id, model_id, feature_id, name, osm_id, fclass,
+              q_overtopped, q_0_5_ft, q_2_ft, q_5_ft, max_flow, is_overtopped,
+              model_run_time, workflow_id
+       FROM ${SCHEMA}.s_lwc_pnt
+       WHERE COALESCE(workflow_id,'default')='${WF}'" \
+      "id" "${DCODE} Low Water Crossings (wf=${WF})"
   done <<< "${DISTRICTS}"
 done
 
@@ -307,8 +375,10 @@ for WF in ${WORKFLOWS}; do
     <layer>${WF}_tx_flood</layer>
     <layer>${WF}_tx_roads</layer>
     <layer>${WF}_tx_bridges</layer>
+    <layer>${WF}_tx_lwc</layer>
   </layers>
   <styles>
+    <style/>
     <style/>
     <style/>
     <style/>
@@ -317,6 +387,7 @@ for WF in ${WORKFLOWS}; do
     <published type="layer"><name>${WORKSPACE}:${WF}_tx_flood</name></published>
     <published type="layer"><name>${WORKSPACE}:${WF}_tx_roads</name></published>
     <published type="layer"><name>${WORKSPACE}:${WF}_tx_bridges</name></published>
+    <published type="layer"><name>${WORKSPACE}:${WF}_tx_lwc</name></published>
   </publishables>
 </layerGroup>
 EOF

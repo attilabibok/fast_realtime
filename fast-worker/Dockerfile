@@ -46,7 +46,8 @@ RUN mamba install -y -c conda-forge \
     shapely \
     netcdf4 \
     h5netcdf \
-    proj
+    proj \
+    'pandas<3'
 
 # Install pip-only packages with compatible versions
 RUN pip install \

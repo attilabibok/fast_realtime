@@ -19,7 +19,8 @@ DECLARE
         's_flood_merge_ar',
         's_flood_road_trim_ln',
         's_flood_road_ln',
-        's_bridge_warning_pnt'
+        's_bridge_warning_pnt',
+        's_lwc_pnt'
     ];
     table_exists BOOLEAN;
 BEGIN

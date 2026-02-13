@@ -237,3 +237,91 @@ FROM foreign_25.s_bridge_warning_pnt;
 -- Create a unique index on the global bridge index
 CREATE UNIQUE INDEX mv_bridge_warning_pnt_tx_uidx ON mv_bridge_warning_pnt_tx (bridge_idx_tx);
 CREATE INDEX mv_bridge_warning_pnt_wf_uidx ON mv_bridge_warning_pnt_tx (workflow_id);
+
+-- LOW WATER CROSSINGS
+DROP MATERIALIZED VIEW IF EXISTS mv_lwc_pnt_tx;
+
+CREATE MATERIALIZED VIEW mv_lwc_pnt_tx AS
+SELECT
+    ('01_' || lwc_id::text || '_' || COALESCE(workflow_id, 'default')) AS lwc_id_tx,
+    lwc_id, hydro_id, model_id, feature_id, name, osm_id, fclass,
+    q_overtopped, q_0_5_ft, q_2_ft, q_5_ft,
+    max_flow, is_overtopped, model_run_time, workflow_id, geometry,
+    'PAR' AS source_db
+FROM foreign_01.s_lwc_pnt
+UNION ALL
+SELECT ('02_' || lwc_id::text || '_' || COALESCE(workflow_id, 'default')), lwc_id, hydro_id, model_id, feature_id, name, osm_id, fclass, q_overtopped, q_0_5_ft, q_2_ft, q_5_ft, max_flow, is_overtopped, model_run_time, workflow_id, geometry, 'FTW'
+FROM foreign_02.s_lwc_pnt
+UNION ALL
+SELECT ('03_' || lwc_id::text || '_' || COALESCE(workflow_id, 'default')), lwc_id, hydro_id, model_id, feature_id, name, osm_id, fclass, q_overtopped, q_0_5_ft, q_2_ft, q_5_ft, max_flow, is_overtopped, model_run_time, workflow_id, geometry, 'WFS'
+FROM foreign_03.s_lwc_pnt
+UNION ALL
+SELECT ('04_' || lwc_id::text || '_' || COALESCE(workflow_id, 'default')), lwc_id, hydro_id, model_id, feature_id, name, osm_id, fclass, q_overtopped, q_0_5_ft, q_2_ft, q_5_ft, max_flow, is_overtopped, model_run_time, workflow_id, geometry, 'AMA'
+FROM foreign_04.s_lwc_pnt
+UNION ALL
+SELECT ('05_' || lwc_id::text || '_' || COALESCE(workflow_id, 'default')), lwc_id, hydro_id, model_id, feature_id, name, osm_id, fclass, q_overtopped, q_0_5_ft, q_2_ft, q_5_ft, max_flow, is_overtopped, model_run_time, workflow_id, geometry, 'LBB'
+FROM foreign_05.s_lwc_pnt
+UNION ALL
+SELECT ('06_' || lwc_id::text || '_' || COALESCE(workflow_id, 'default')), lwc_id, hydro_id, model_id, feature_id, name, osm_id, fclass, q_overtopped, q_0_5_ft, q_2_ft, q_5_ft, max_flow, is_overtopped, model_run_time, workflow_id, geometry, 'ODA'
+FROM foreign_06.s_lwc_pnt
+UNION ALL
+SELECT ('07_' || lwc_id::text || '_' || COALESCE(workflow_id, 'default')), lwc_id, hydro_id, model_id, feature_id, name, osm_id, fclass, q_overtopped, q_0_5_ft, q_2_ft, q_5_ft, max_flow, is_overtopped, model_run_time, workflow_id, geometry, 'SJT'
+FROM foreign_07.s_lwc_pnt
+UNION ALL
+SELECT ('08_' || lwc_id::text || '_' || COALESCE(workflow_id, 'default')), lwc_id, hydro_id, model_id, feature_id, name, osm_id, fclass, q_overtopped, q_0_5_ft, q_2_ft, q_5_ft, max_flow, is_overtopped, model_run_time, workflow_id, geometry, 'ABL'
+FROM foreign_08.s_lwc_pnt
+UNION ALL
+SELECT ('09_' || lwc_id::text || '_' || COALESCE(workflow_id, 'default')), lwc_id, hydro_id, model_id, feature_id, name, osm_id, fclass, q_overtopped, q_0_5_ft, q_2_ft, q_5_ft, max_flow, is_overtopped, model_run_time, workflow_id, geometry, 'WAC'
+FROM foreign_09.s_lwc_pnt
+UNION ALL
+SELECT ('10_' || lwc_id::text || '_' || COALESCE(workflow_id, 'default')), lwc_id, hydro_id, model_id, feature_id, name, osm_id, fclass, q_overtopped, q_0_5_ft, q_2_ft, q_5_ft, max_flow, is_overtopped, model_run_time, workflow_id, geometry, 'TYL'
+FROM foreign_10.s_lwc_pnt
+UNION ALL
+SELECT ('11_' || lwc_id::text || '_' || COALESCE(workflow_id, 'default')), lwc_id, hydro_id, model_id, feature_id, name, osm_id, fclass, q_overtopped, q_0_5_ft, q_2_ft, q_5_ft, max_flow, is_overtopped, model_run_time, workflow_id, geometry, 'LFK'
+FROM foreign_11.s_lwc_pnt
+UNION ALL
+SELECT ('12_' || lwc_id::text || '_' || COALESCE(workflow_id, 'default')), lwc_id, hydro_id, model_id, feature_id, name, osm_id, fclass, q_overtopped, q_0_5_ft, q_2_ft, q_5_ft, max_flow, is_overtopped, model_run_time, workflow_id, geometry, 'HOU'
+FROM foreign_12.s_lwc_pnt
+UNION ALL
+SELECT ('13_' || lwc_id::text || '_' || COALESCE(workflow_id, 'default')), lwc_id, hydro_id, model_id, feature_id, name, osm_id, fclass, q_overtopped, q_0_5_ft, q_2_ft, q_5_ft, max_flow, is_overtopped, model_run_time, workflow_id, geometry, 'YKM'
+FROM foreign_13.s_lwc_pnt
+UNION ALL
+SELECT ('14_' || lwc_id::text || '_' || COALESCE(workflow_id, 'default')), lwc_id, hydro_id, model_id, feature_id, name, osm_id, fclass, q_overtopped, q_0_5_ft, q_2_ft, q_5_ft, max_flow, is_overtopped, model_run_time, workflow_id, geometry, 'AUS'
+FROM foreign_14.s_lwc_pnt
+UNION ALL
+SELECT ('15_' || lwc_id::text || '_' || COALESCE(workflow_id, 'default')), lwc_id, hydro_id, model_id, feature_id, name, osm_id, fclass, q_overtopped, q_0_5_ft, q_2_ft, q_5_ft, max_flow, is_overtopped, model_run_time, workflow_id, geometry, 'SAT'
+FROM foreign_15.s_lwc_pnt
+UNION ALL
+SELECT ('16_' || lwc_id::text || '_' || COALESCE(workflow_id, 'default')), lwc_id, hydro_id, model_id, feature_id, name, osm_id, fclass, q_overtopped, q_0_5_ft, q_2_ft, q_5_ft, max_flow, is_overtopped, model_run_time, workflow_id, geometry, 'CRP'
+FROM foreign_16.s_lwc_pnt
+UNION ALL
+SELECT ('17_' || lwc_id::text || '_' || COALESCE(workflow_id, 'default')), lwc_id, hydro_id, model_id, feature_id, name, osm_id, fclass, q_overtopped, q_0_5_ft, q_2_ft, q_5_ft, max_flow, is_overtopped, model_run_time, workflow_id, geometry, 'BRY'
+FROM foreign_17.s_lwc_pnt
+UNION ALL
+SELECT ('18_' || lwc_id::text || '_' || COALESCE(workflow_id, 'default')), lwc_id, hydro_id, model_id, feature_id, name, osm_id, fclass, q_overtopped, q_0_5_ft, q_2_ft, q_5_ft, max_flow, is_overtopped, model_run_time, workflow_id, geometry, 'DAL'
+FROM foreign_18.s_lwc_pnt
+UNION ALL
+SELECT ('19_' || lwc_id::text || '_' || COALESCE(workflow_id, 'default')), lwc_id, hydro_id, model_id, feature_id, name, osm_id, fclass, q_overtopped, q_0_5_ft, q_2_ft, q_5_ft, max_flow, is_overtopped, model_run_time, workflow_id, geometry, 'ATL'
+FROM foreign_19.s_lwc_pnt
+UNION ALL
+SELECT ('20_' || lwc_id::text || '_' || COALESCE(workflow_id, 'default')), lwc_id, hydro_id, model_id, feature_id, name, osm_id, fclass, q_overtopped, q_0_5_ft, q_2_ft, q_5_ft, max_flow, is_overtopped, model_run_time, workflow_id, geometry, 'BMT'
+FROM foreign_20.s_lwc_pnt
+UNION ALL
+SELECT ('21_' || lwc_id::text || '_' || COALESCE(workflow_id, 'default')), lwc_id, hydro_id, model_id, feature_id, name, osm_id, fclass, q_overtopped, q_0_5_ft, q_2_ft, q_5_ft, max_flow, is_overtopped, model_run_time, workflow_id, geometry, 'PHR'
+FROM foreign_21.s_lwc_pnt
+UNION ALL
+SELECT ('22_' || lwc_id::text || '_' || COALESCE(workflow_id, 'default')), lwc_id, hydro_id, model_id, feature_id, name, osm_id, fclass, q_overtopped, q_0_5_ft, q_2_ft, q_5_ft, max_flow, is_overtopped, model_run_time, workflow_id, geometry, 'LRD'
+FROM foreign_22.s_lwc_pnt
+UNION ALL
+SELECT ('23_' || lwc_id::text || '_' || COALESCE(workflow_id, 'default')), lwc_id, hydro_id, model_id, feature_id, name, osm_id, fclass, q_overtopped, q_0_5_ft, q_2_ft, q_5_ft, max_flow, is_overtopped, model_run_time, workflow_id, geometry, 'BWD'
+FROM foreign_23.s_lwc_pnt
+UNION ALL
+SELECT ('24_' || lwc_id::text || '_' || COALESCE(workflow_id, 'default')), lwc_id, hydro_id, model_id, feature_id, name, osm_id, fclass, q_overtopped, q_0_5_ft, q_2_ft, q_5_ft, max_flow, is_overtopped, model_run_time, workflow_id, geometry, 'ELP'
+FROM foreign_24.s_lwc_pnt
+UNION ALL
+SELECT ('25_' || lwc_id::text || '_' || COALESCE(workflow_id, 'default')), lwc_id, hydro_id, model_id, feature_id, name, osm_id, fclass, q_overtopped, q_0_5_ft, q_2_ft, q_5_ft, max_flow, is_overtopped, model_run_time, workflow_id, geometry, 'CHS'
+FROM foreign_25.s_lwc_pnt;
+
+CREATE UNIQUE INDEX mv_lwc_pnt_tx_uidx ON mv_lwc_pnt_tx (lwc_id_tx);
+CREATE INDEX mv_lwc_pnt_tx_wf_idx ON mv_lwc_pnt_tx (workflow_id);
+CREATE INDEX mv_lwc_pnt_tx_feature_idx ON mv_lwc_pnt_tx (feature_id);

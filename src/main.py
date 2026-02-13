@@ -45,24 +45,24 @@ SLEEP_TIME = int(os.getenv("SLEEP_TIME", "1800"))
 def run_update():
 
     start = time.time()
-    process_all_ini_files_parallel(FOLDER_PATH_NWM_NC, PRINT_OUTPUT, max_workers=MAX_WORKERS, final_ini_str=FILE_NWM_FINAL_NC, initial_ini_str=FILE_NWM_INPUT_NC)
+    process_all_ini_files_parallel(FOLDER_PATH_DA_NC, PRINT_OUTPUT, max_workers=MAX_WORKERS, final_ini_str=FILE_DA_FINAL_NC, initial_ini_str=FILE_DA_INPUT_NC)
     duration = str(timedelta(seconds=int(time.time() - start)))
-    logger.info(f"[✓] All NWM NC .ini files processed in: {duration}")
+    logger.info(f"[✓] All DA NC .ini files processed in: {duration}")
 
     start = time.time()
     process_all_ini_files_parallel(FOLDER_PATH_NWM, PRINT_OUTPUT, max_workers=MAX_WORKERS, final_ini_str=FILE_NWM_FINAL, initial_ini_str=FILE_NWM_INPUT)
     duration = str(timedelta(seconds=int(time.time() - start)))
     logger.info(f"[✓] All NWM .ini files processed in: {duration}")
 
+    start = time.time()
+    process_all_ini_files_parallel(FOLDER_PATH_NWM_NC, PRINT_OUTPUT, max_workers=MAX_WORKERS, final_ini_str=FILE_NWM_FINAL_NC, initial_ini_str=FILE_NWM_INPUT_NC)
+    duration = str(timedelta(seconds=int(time.time() - start)))
+    logger.info(f"[✓] All NWM NC .ini files processed in: {duration}")
+
     # start = time.time()
     # process_all_ini_files_parallel(FOLDER_PATH_NWM2, PRINT_OUTPUT, max_workers=MAX_WORKERS, final_ini_str=FILE_NWM2_FINAL, initial_ini_str=FILE_NWM2_INPUT)
     # duration = str(timedelta(seconds=int(time.time() - start)))
     # logger.info(f"[✓] All NWM .ini files from original NWM processed in: {duration}")
-    start = time.time()
-    process_all_ini_files_parallel(FOLDER_PATH_DA_NC, PRINT_OUTPUT, max_workers=MAX_WORKERS, final_ini_str=FILE_DA_FINAL_NC, initial_ini_str=FILE_DA_INPUT_NC)
-    duration = str(timedelta(seconds=int(time.time() - start)))
-    logger.info(f"[✓] All DA NC .ini files processed in: {duration}")
-
     start = time.time()
     process_all_ini_files_parallel(FOLDER_PATH_DA, PRINT_OUTPUT, max_workers=MAX_WORKERS, final_ini_str=FILE_DA_FINAL, initial_ini_str=FILE_DA_INPUT)
     duration = str(timedelta(seconds=int(time.time() - start)))

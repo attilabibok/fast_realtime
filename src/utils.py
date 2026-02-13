@@ -57,13 +57,29 @@ class DownloadConfig(BaseModel):
     def parse_exclude_indexes(cls, v: Union[str, int, list[int], None]):
         if v is None:
             return None
-        if isinstance(v, list):
+        if isinstance(v, (list, tuple, set)):
             return [int(x) for x in v]
         if isinstance(v, int):
             return [v]
         if isinstance(v, str):
-            # allow "1,2,5" or "1 2 5"
-            parts = [p for p in v.replace(",", " ").split() if p]
+            raw = v.strip()
+            if not raw:
+                return None
+
+            # Support INI values like "[18]" or "[0, 2]".
+            if raw.startswith("[") and raw.endswith("]"):
+                try:
+                    parsed = json.loads(raw)
+                except json.JSONDecodeError:
+                    parsed = [p for p in raw[1:-1].replace(",", " ").split() if p]
+                if isinstance(parsed, int):
+                    return [parsed]
+                if isinstance(parsed, (list, tuple, set)):
+                    return [int(x) for x in parsed]
+                raise ValueError(f"Unsupported bracketed value for exclude_column_indexes: {raw}")
+
+            # Also allow plain "1,2,5" or "1 2 5".
+            parts = [p for p in raw.replace(",", " ").split() if p]
             return [int(p) for p in parts]
         raise TypeError(f"Unsupported type for exclude_column_indexes: {type(v)}")
 
@@ -86,6 +102,7 @@ class WriteToS3Config(BaseModel):
     publish_roads: bool = True
     publish_bridges: bool = True
     publish_inundation: bool = True
+    publish_lwc: bool = True
 
     # Enable esrijson output
     publish_esri_json: bool = False
@@ -103,6 +120,7 @@ class LocalResultsConfig(BaseModel):
     publish_roads: bool = True
     publish_bridges: bool = True
     publish_inundation: bool = True
+    publish_lwc: bool = True
 
     # Enable esrijson output
     publish_esri_json: bool = False
@@ -581,7 +599,6 @@ def fn_get_dataframe_from_postgresql(table: str, db: dict, workflow_id: str | No
         else:
             query = f"SELECT * FROM {table}"
             cur.execute(query)
-        cur.execute(query, (workflow_id,))
         rows = cur.fetchall()
         colnames = [desc[0] for desc in cur.description]
         return pd.DataFrame(rows, columns=colnames)

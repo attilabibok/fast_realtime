@@ -235,7 +235,124 @@ UPDATE s_flood_merge_ar
 SET geometry = ST_SetSRID(geometry, 4326) 
 WHERE ST_SRID(geometry) = 0 AND workflow_id = :'workflow_id';
 
--- ITEM #8: Store latest forecast time
+-- ITEM #8: Build LWC status points
+CREATE TABLE IF NOT EXISTS s_lwc_static_pnt (
+    lwc_id BIGINT PRIMARY KEY,
+    hydro_id BIGINT,
+    model_id BIGINT,
+    feature_id BIGINT NOT NULL,
+    name TEXT,
+    osm_id TEXT,
+    fclass TEXT,
+    q_overtopped BIGINT,
+    q_0_5_ft BIGINT,
+    q_2_ft BIGINT,
+    q_5_ft BIGINT,
+    geometry geometry(Point, 4326) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_s_lwc_static_pnt_feature_id
+  ON s_lwc_static_pnt (feature_id);
+
+CREATE INDEX IF NOT EXISTS idx_s_lwc_static_pnt_geom
+  ON s_lwc_static_pnt USING GIST (geometry);
+
+CREATE TABLE IF NOT EXISTS s_lwc_pnt (
+    lwc_id BIGINT NOT NULL,
+    hydro_id BIGINT,
+    model_id BIGINT,
+    feature_id BIGINT NOT NULL,
+    name TEXT,
+    osm_id TEXT,
+    fclass TEXT,
+    q_overtopped BIGINT,
+    q_0_5_ft BIGINT,
+    q_2_ft BIGINT,
+    q_5_ft BIGINT,
+    max_flow BIGINT,
+    is_overtopped BIGINT,
+    model_run_time TEXT,
+    workflow_id TEXT DEFAULT 'default',
+    geometry geometry(Point, 4326) NOT NULL,
+    PRIMARY KEY (lwc_id, workflow_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_s_lwc_pnt_feature_id
+  ON s_lwc_pnt (feature_id);
+
+CREATE INDEX IF NOT EXISTS idx_s_lwc_pnt_workflow_id
+  ON s_lwc_pnt (workflow_id);
+
+CREATE INDEX IF NOT EXISTS idx_s_lwc_pnt_geom
+  ON s_lwc_pnt USING GIST (geometry);
+
+ALTER TABLE s_lwc_static_pnt
+  ALTER COLUMN q_overtopped DROP NOT NULL;
+
+ALTER TABLE s_lwc_pnt
+  ALTER COLUMN q_overtopped DROP NOT NULL;
+
+DELETE FROM s_lwc_pnt WHERE workflow_id = :'workflow_id';
+
+INSERT INTO s_lwc_pnt (
+    lwc_id,
+    hydro_id,
+    model_id,
+    feature_id,
+    name,
+    osm_id,
+    fclass,
+    q_overtopped,
+    q_0_5_ft,
+    q_2_ft,
+    q_5_ft,
+    max_flow,
+    is_overtopped,
+    model_run_time,
+    workflow_id,
+    geometry
+)
+WITH flow_by_feature AS (
+    SELECT
+        feature_id,
+        MAX(max_flow)::bigint AS max_flow,
+        MIN(model_run_time) AS model_run_time
+    FROM t_flow_per_nextgen
+    WHERE workflow_id = :'workflow_id'
+    GROUP BY feature_id
+),
+run_time AS (
+    SELECT MAX(model_run_time) AS model_run_time
+    FROM txfull.t_flow_forecast
+    WHERE workflow_id = :'workflow_id'
+)
+SELECT
+    s.lwc_id,
+    s.hydro_id,
+    s.model_id,
+    s.feature_id,
+    s.name,
+    s.osm_id,
+    s.fclass,
+    s.q_overtopped,
+    s.q_0_5_ft,
+    s.q_2_ft,
+    s.q_5_ft,
+    COALESCE(f.max_flow, 0) AS max_flow,
+    CASE
+        WHEN s.q_overtopped IS NULL THEN NULL
+        WHEN COALESCE(f.max_flow, 0) >= s.q_overtopped THEN 1
+        ELSE 0
+    END AS is_overtopped,
+    COALESCE(f.model_run_time, rt.model_run_time) AS model_run_time,
+    :'workflow_id',
+    s.geometry
+FROM s_lwc_static_pnt s
+LEFT JOIN flow_by_feature f
+  ON s.feature_id = f.feature_id
+CROSS JOIN run_time rt;
+
+-- ITEM #9: Store latest forecast time
 DELETE FROM t_current_forecast WHERE workflow_id = :'workflow_id';
 
 INSERT INTO t_current_forecast (model_run_time, workflow_id)

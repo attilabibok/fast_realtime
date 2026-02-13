@@ -96,7 +96,8 @@ class Settings(BaseSettings):
             {"bucket":"knatempstorage","key":"fast_realtime/nwm_nc/TXFull/flood_ar.geojson","name":"NWM Nowcast - Inundation"},
             {"bucket":"knatempstorage","key":"fast_realtime/nwm_nc/TXFull/flood_road_trim_ln.geojson","name":"NWM Nowcast - Roads"},
             {"url":"https://bridges.txdot.kisters.cloud/eval/monitoring/fast","name":"FAST monitoring"},
-            {"url":"https://bridges.txdot.kisters.cloud/eval/fast","name":"FAST dashboard"}
+            {"url":"https://bridges.txdot.kisters.cloud/eval/fast","name":"FAST dashboard"},
+            {"url":"https://analytics.txdot.kisters.cloud/geoserver/ows?service=WMS&request=GetCapabilities","name":"WFS Feature Service"}
             ]"""
 
     # S3 config

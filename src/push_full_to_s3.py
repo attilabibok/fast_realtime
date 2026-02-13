@@ -127,6 +127,7 @@ async def fn_merged_view(cfg: FASTConfig, b_print_output: bool = False, foreign_
     # str_road_nav_table_name = "mv_flood_road_ln_tx"
     str_road_table_name = "mv_flood_road_trim_ln_tx"
     str_inundation_table_name = "mv_flood_merge_tx"
+    str_lwc_table_name = "mv_lwc_pnt_tx"
 
     gdf_s_bridge_warning_pnt = fn_get_geodataframe_from_postgresql(
         str_bridge_table_name, db_params, "geometry", workflow_id=cfg.merged_view.workflow_id
@@ -139,6 +140,9 @@ async def fn_merged_view(cfg: FASTConfig, b_print_output: bool = False, foreign_
     )
     gdf_s_flood_merge_ar = fn_get_geodataframe_from_postgresql(
         str_inundation_table_name, db_params, "geometry", workflow_id=cfg.merged_view.workflow_id
+    )
+    gdf_s_lwc_pnt = fn_get_geodataframe_from_postgresql(
+        str_lwc_table_name, db_params, "geometry", workflow_id=cfg.merged_view.workflow_id
     )
 
     # Even if there are no polygons, this shold have one row with model_run_time
@@ -194,6 +198,11 @@ async def fn_merged_view(cfg: FASTConfig, b_print_output: bool = False, foreign_
     gdf_s_flood_road_trim_ln["model_run_time"] = pd.to_datetime(
         gdf_s_flood_road_trim_ln["model_run_time"]
     ).dt.strftime("%Y-%m-%dT%H:%M:%S")
+
+    if not gdf_s_lwc_pnt.empty:
+        gdf_s_lwc_pnt["model_run_time"] = pd.to_datetime(
+            gdf_s_lwc_pnt["model_run_time"]
+        ).dt.strftime("%Y-%m-%dT%H:%M:%S")
 
     # -- If empty, create a AGOL placeholder for bridge warning points
     if gdf_s_bridge_warning_pnt.empty:
@@ -257,6 +266,25 @@ async def fn_merged_view(cfg: FASTConfig, b_print_output: bool = False, foreign_
     ]
     gdf_s_bridge_warning_pnt = gdf_s_bridge_warning_pnt[columns_to_keep_bridge]
 
+    if not gdf_s_lwc_pnt.empty:
+        columns_to_keep_lwc = [
+            "geometry",
+            "name",
+            "feature_id",
+            "osm_id",
+            "fclass",
+            "q_overtopped",
+            "q_0_5_ft",
+            "q_2_ft",
+            "q_5_ft",
+            "max_flow",
+            "is_overtopped",
+            "model_run_time",
+            "workflow_id",
+            "source_db",
+        ]
+        gdf_s_lwc_pnt = gdf_s_lwc_pnt[columns_to_keep_lwc]
+
     # Get model runtime for sure. do not rely on non-empty results.
     should_publish_historic = False
 
@@ -309,6 +337,12 @@ async def fn_merged_view(cfg: FASTConfig, b_print_output: bool = False, foreign_
                 # str_flood_ar_esri_key = f"{local_output_folder}/{str_model_runtime}_flood_ar_esrijson.json"
                 # fn_write_gdf_to_file_esrijson(gdf_s_flood_merge_ar, str_flood_ar_esri_key)
 
+            if cfg.merged_view.local_output.publish_lwc and not gdf_s_lwc_pnt.empty:
+                str_lwc_pnt_key = (
+                    f"{local_output_folder}/{str_model_runtime}_lwc_pnts.geojson"
+                )
+                fn_write_gdf_to_file(gdf_s_lwc_pnt, str_lwc_pnt_key)
+
         if cfg.merged_view.local_output.publish_live:  # live results
             local_output_folder = cfg.merged_view.local_output.output_folder
             if cfg.merged_view.local_output.publish_bridges:
@@ -336,6 +370,10 @@ async def fn_merged_view(cfg: FASTConfig, b_print_output: bool = False, foreign_
                 # str_flood_ar_esri_key = f"{local_output_folder}/{str_model_runtime}_flood_ar_esrijson.json"
                 # fn_write_gdf_to_file_esrijson(gdf_s_flood_merge_ar, str_flood_ar_esri_key)
 
+            if cfg.merged_view.local_output.publish_lwc and not gdf_s_lwc_pnt.empty:
+                str_lwc_pnt_key = f"{local_output_folder}/lwc_pnts.geojson"
+                fn_write_gdf_to_file(gdf_s_lwc_pnt, str_lwc_pnt_key)
+
     s3_tasks = []
 
     if cfg.merged_view and cfg.merged_view.s3_output:
@@ -360,6 +398,11 @@ async def fn_merged_view(cfg: FASTConfig, b_print_output: bool = False, foreign_
                 if s3.publish_esri_json:
                     s3_tasks.append(fn_write_gdf_to_s3_esri_featureset(gdf_s_flood_merge_ar, s3.publish_bucket, f"{sub}flood_ar_esrijson.json"))
 
+            if s3.publish_lwc and not gdf_s_lwc_pnt.empty:
+                s3_tasks.append(fn_write_gdf_to_s3(gdf_s_lwc_pnt, s3.publish_bucket, f"{sub}lwc_pnts.geojson"))
+                if s3.publish_esri_json:
+                    s3_tasks.append(fn_write_gdf_to_s3_esri_featureset(gdf_s_lwc_pnt, s3.publish_bucket, f"{sub}lwc_pnts_esrijson.json"))
+
         # ---------- LIVE ----------
         if s3.publish_live:
             sub = s3.publish_sub_folder.strip()
@@ -380,6 +423,11 @@ async def fn_merged_view(cfg: FASTConfig, b_print_output: bool = False, foreign_
                 s3_tasks.append(fn_write_gdf_to_s3(gdf_s_flood_merge_ar, s3.publish_bucket, f"{sub}flood_ar.geojson"))
                 if s3.publish_esri_json:
                     s3_tasks.append(fn_write_gdf_to_s3_esri_featureset(gdf_s_flood_merge_ar, s3.publish_bucket, f"{sub}flood_ar_esrijson.json"))
+
+            if s3.publish_lwc and not gdf_s_lwc_pnt.empty:
+                s3_tasks.append(fn_write_gdf_to_s3(gdf_s_lwc_pnt, s3.publish_bucket, f"{sub}lwc_pnts.geojson"))
+                if s3.publish_esri_json:
+                    s3_tasks.append(fn_write_gdf_to_s3_esri_featureset(gdf_s_lwc_pnt, s3.publish_bucket, f"{sub}lwc_pnts_esrijson.json"))
 
     # 🔄 Run all S3 uploads concurrently
     await asyncio.gather(*s3_tasks)

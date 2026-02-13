@@ -99,7 +99,11 @@ fi
 echo "Altering TXFull tables..."
 bash "/postgres_init/alter_existing_dyn_tables.sh"
 echo "Altering District tables..."
-bash "/postgres_init/wire_txfull_forecast.sh"
+PGHOST=postgis PGPORT=5432 PGUSER=admin PGPASSWORD="${PGPASSWORD:-admin123}" TXFULL_DB=TXFull \
+  bash "/postgres_init/wire_txfull_forecast.sh"
+echo "Loading district LWC seed data..."
+PGHOST=postgis PGPORT=5432 PGUSER=admin PGPASSWORD="${PGPASSWORD:-admin123}" \
+  bash "/postgres_init/load_lwc_data.sh"
 
 echo "Setting up TXFull views..."
 psql -h postgis -U admin -d TXFull -f /postgres_init/create_foreign_data_views.sql

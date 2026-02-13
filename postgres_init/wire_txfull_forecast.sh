@@ -4,7 +4,7 @@ set -euo pipefail
 # =========================
 # CONFIG — EDIT IF NEEDED
 # =========================
-export PGHOST="${PGHOST:-localhost}"
+export PGHOST="${PGHOST:-postgis}"
 export PGPORT="${PGPORT:-5432}"
 export PGUSER="${PGUSER:-admin}"
 export PGPASSWORD="${PGPASSWORD:-admin123}"
@@ -51,6 +51,12 @@ TBL_CURRENT="t_current_forecast"
 say() { echo "[$(date +'%F %T')] $*"; }
 psql_db() { local db="$1"; shift; psql "host=$PGHOST port=$PGPORT user=$PGUSER dbname=$db" -v ON_ERROR_STOP=1 -q -c "$*"; }
 psql_here() { local db="$1"; shift; psql "host=$PGHOST port=$PGPORT user=$PGUSER dbname=$db" -v ON_ERROR_STOP=1 -q "$@"; }
+
+say "Checking PostgreSQL connectivity at ${PGHOST}:${PGPORT} as ${PGUSER}..."
+if ! psql "host=$PGHOST port=$PGPORT user=$PGUSER dbname=postgres" -tA -q -c "SELECT 1;" >/dev/null 2>&1; then
+  say "ERROR: Cannot connect to PostgreSQL at ${PGHOST}:${PGPORT}. Set PGHOST/PGPORT/PGUSER/PGPASSWORD correctly."
+  exit 1
+fi
 
 # =========================
 # 0) Discover district DBs

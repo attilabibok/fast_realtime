@@ -18,6 +18,7 @@ import numpy as np
 import datetime
 import warnings
 import pandas as pd
+import psycopg2
 from utils import (
     FASTConfig,
     load_config,
@@ -31,6 +32,60 @@ from typing import Optional
 import logging
 logger = logging.getLogger(__name__)
 # ************************************************************
+
+
+def _coerce_model_run_time_utc(raw_value, source_name: str) -> pd.Timestamp:
+    model_run_time = pd.to_datetime(raw_value, errors="coerce")
+    if model_run_time is pd.NaT:
+        raise ValueError(f"Invalid datetime format from {source_name}: {raw_value!r}")
+    if model_run_time.tzinfo is None:
+        return model_run_time.tz_localize("UTC")
+    return model_run_time.tz_convert("UTC")
+
+
+def _get_model_run_time(db_conn_info: dict, workflow_id: str) -> pd.Timestamp:
+    df_current = fn_get_dataframe_from_postgresql(
+        "t_current_forecast",
+        db_conn_info,
+        workflow_id=workflow_id,
+    )
+    if not df_current.empty and "model_run_time" in df_current.columns:
+        return _coerce_model_run_time_utc(
+            df_current.iloc[0]["model_run_time"],
+            f"t_current_forecast(workflow_id={workflow_id})",
+        )
+
+    # Fallback for partial runs: use latest model_run_time from streamflow source table.
+    conn = psycopg2.connect(**db_conn_info)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT MAX(model_run_time)
+            FROM t_flow_forecast
+            WHERE workflow_id = %s
+            """,
+            (workflow_id,),
+        )
+        row = cur.fetchone()
+    finally:
+        cur.close()
+        conn.close()
+
+    if row and row[0] is not None:
+        logger.warning(
+            "No rows found in t_current_forecast for workflow_id=%s; using MAX(model_run_time) from t_flow_forecast.",
+            workflow_id,
+        )
+        return _coerce_model_run_time_utc(
+            row[0],
+            f"t_flow_forecast(workflow_id={workflow_id})",
+        )
+
+    raise ValueError(
+        f"No model_run_time available for workflow_id={workflow_id!r}. "
+        f"Both t_current_forecast and t_flow_forecast are empty for this workflow."
+    )
 
 # ----------------------
 # ----------------
@@ -96,6 +151,7 @@ async def fn_push_to_s3(cfg: FASTConfig, b_print_output: bool, foreign_db: Optio
     str_bridge_table_name = "s_bridge_warning_pnt"
     str_road_table_name = "s_flood_road_trim_ln"
     str_inundation_table_name = "s_flood_merge_ar"
+    str_lwc_table_name = "s_lwc_pnt"
 
     gdf_s_bridge_warning_pnt = fn_get_geodataframe_from_postgresql(
         str_bridge_table_name, db_params, "geometry", workflow_id=cfg.sql.workflow_id
@@ -106,21 +162,12 @@ async def fn_push_to_s3(cfg: FASTConfig, b_print_output: bool, foreign_db: Optio
     gdf_s_flood_merge_ar = fn_get_geodataframe_from_postgresql(
         str_inundation_table_name, db_params, "geometry", workflow_id=cfg.sql.workflow_id
     )
-    # Get model runtime for sure. do not rely on non-empty results.
+    gdf_s_lwc_pnt = fn_get_geodataframe_from_postgresql(
+        str_lwc_table_name, db_params, "geometry", workflow_id=cfg.sql.workflow_id
+    )
+    # Get model runtime, with fallback for partial runs.
     db_conn_info = resolve_db_credentials(cfg.database)
-    df_current = fn_get_dataframe_from_postgresql('t_current_forecast', db_conn_info, workflow_id=cfg.sql.workflow_id)
-    # model_run_time = df_current.iloc[0]['model_run_time'].tz_localize("UTC")
-    raw_value = df_current.iloc[0]['model_run_time']
-    model_run_time = pd.to_datetime(raw_value, errors='coerce')
-
-    if model_run_time is pd.NaT:
-        raise ValueError(f"Invalid datetime format: {raw_value}")
-
-    # Ensure it's timezone-aware in UTC
-    if model_run_time.tzinfo is None:
-        model_run_time = model_run_time.tz_localize("UTC")
-    else:
-        model_run_time = model_run_time.tz_convert("UTC")
+    model_run_time = _get_model_run_time(db_conn_info, cfg.sql.workflow_id)
     str_model_runtime = model_run_time.strftime("%Y%m%d%H%M")
 
 
@@ -146,19 +193,6 @@ async def fn_push_to_s3(cfg: FASTConfig, b_print_output: bool, foreign_db: Optio
             crs="EPSG:4326"
         )
     else:
-        raw_value = df_current.iloc[0]['model_run_time']
-        model_run_time = pd.to_datetime(raw_value, errors='coerce')
-
-        if model_run_time is pd.NaT:
-            raise ValueError(f"Invalid datetime format: {raw_value}")
-
-        # Ensure it's timezone-aware in UTC
-        if model_run_time.tzinfo is None:
-            model_run_time = model_run_time.tz_localize("UTC")
-        else:
-            model_run_time = model_run_time.tz_convert("UTC")
-
-
         if gdf_s_flood_merge_ar.iloc[0]["geometry"] is None:
             gdf_s_flood_merge_ar.at[gdf_s_flood_merge_ar.index[0], "geometry"] = (
                 geometry_fake_area
@@ -201,6 +235,11 @@ async def fn_push_to_s3(cfg: FASTConfig, b_print_output: bool, foreign_db: Optio
     gdf_s_flood_road_trim_ln["model_run_time"] = pd.to_datetime(
         gdf_s_flood_road_trim_ln["model_run_time"]
     ).dt.strftime("%Y-%m-%dT%H:%M:%S")
+
+    if not gdf_s_lwc_pnt.empty:
+        gdf_s_lwc_pnt["model_run_time"] = pd.to_datetime(
+            gdf_s_lwc_pnt["model_run_time"]
+        ).dt.strftime("%Y-%m-%dT%H:%M:%S")
 
     # -- If empty, create a AGOL placeholder for bridge warning points
     if gdf_s_bridge_warning_pnt.empty:
@@ -266,6 +305,24 @@ async def fn_push_to_s3(cfg: FASTConfig, b_print_output: bool, foreign_db: Optio
     ]
     gdf_s_bridge_warning_pnt = gdf_s_bridge_warning_pnt[columns_to_keep_bridge]
 
+    if not gdf_s_lwc_pnt.empty:
+        columns_to_keep_lwc = [
+            "geometry",
+            "name",
+            "feature_id",
+            "osm_id",
+            "fclass",
+            "q_overtopped",
+            "q_0_5_ft",
+            "q_2_ft",
+            "q_5_ft",
+            "max_flow",
+            "is_overtopped",
+            "model_run_time",
+            "workflow_id",
+        ]
+        gdf_s_lwc_pnt = gdf_s_lwc_pnt[columns_to_keep_lwc]
+
     if cfg.local_results:
         # --- Write the bridge points ---
         local_output_folder = cfg.local_results.output_folder
@@ -319,6 +376,17 @@ async def fn_push_to_s3(cfg: FASTConfig, b_print_output: bool, foreign_db: Optio
                 # str_flood_ar_esri_key = f"{local_output_folder}/{model_runtime}_flood_ar_esrijson.json"
                 # fn_write_gdf_to_file_esrijson(gdf_s_flood_merge_ar, str_flood_ar_esri_key)
 
+        if cfg.local_results.publish_lwc and not gdf_s_lwc_pnt.empty:
+            if cfg.local_results.publish_live:
+                str_lwc_pnt_key = f"{local_output_folder}/lwc_pnts.geojson"
+                fn_write_gdf_to_file(gdf_s_lwc_pnt, str_lwc_pnt_key)
+
+            if cfg.local_results.publish_historic:
+                str_lwc_pnt_key = (
+                    f"{local_output_folder_hist}/{str_model_runtime}_lwc_pnts.geojson"
+                )
+                fn_write_gdf_to_file(gdf_s_lwc_pnt, str_lwc_pnt_key)
+
 
     if cfg.write_to_s3:
         s3_tasks = []
@@ -371,6 +439,22 @@ async def fn_push_to_s3(cfg: FASTConfig, b_print_output: bool, foreign_db: Optio
                 if w.publish_esri_json:
                     str_s3_esri_key = f"{w.publish_historic_sub_folder}/{str_model_runtime}_flood_ar_esrijson.json"
                     s3_tasks.append(fn_write_gdf_to_s3_esrijson(gdf_s_flood_merge_ar, w.publish_historic_bucket, str_s3_esri_key))
+
+        # LWC POINTS
+        if w.publish_lwc and not gdf_s_lwc_pnt.empty:
+            if w.publish_live:
+                str_s3_key = f"{str_publish_sub_folder}lwc_pnts.geojson"
+                s3_tasks.append(fn_write_gdf_to_s3(gdf_s_lwc_pnt, w.publish_bucket, str_s3_key))
+                if w.publish_esri_json:
+                    str_s3_esri_key = f"{str_publish_sub_folder}lwc_pnts_esrijson.json"
+                    s3_tasks.append(fn_write_gdf_to_s3_esrijson(gdf_s_lwc_pnt, w.publish_bucket, str_s3_esri_key))
+
+            if w.publish_historic:
+                str_s3_key = f"{w.publish_historic_sub_folder}/{str_model_runtime}_lwc_pnts.geojson"
+                s3_tasks.append(fn_write_gdf_to_s3(gdf_s_lwc_pnt, w.publish_historic_bucket, str_s3_key))
+                if w.publish_esri_json:
+                    str_s3_esri_key = f"{w.publish_historic_sub_folder}/{str_model_runtime}_lwc_pnts_esrijson.json"
+                    s3_tasks.append(fn_write_gdf_to_s3_esrijson(gdf_s_lwc_pnt, w.publish_historic_bucket, str_s3_esri_key))
 
         await asyncio.gather(*s3_tasks)
 # .........................................................
