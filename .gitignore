@@ -4,6 +4,9 @@ output/
 venv
 geoserver_data
 geoserver_styles
+forecast_cache
+data/da
+output_hist
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

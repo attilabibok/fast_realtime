@@ -23,49 +23,21 @@ WORKFLOWS="${WORKFLOWS:-da_sr da_sr_nc nwm_sr nwm_sr_nc}"
 
 VIEWER_USER="${VIEWER_USER:-viewer}"
 VIEWER_PASS="${VIEWER_PASS:-txdot}"
+DISTRICT_PARAM_NAME="${DISTRICT_PARAM_NAME:-district}"
+REMOVE_LEGACY_DISTRICT_LAYERS="${REMOVE_LEGACY_DISTRICT_LAYERS:-true}"
+REPLACE_EXISTING_TX_LAYERS="${REPLACE_EXISTING_TX_LAYERS:-true}"
 
 # Texas bbox
 
 SRS="${SRS:-EPSG:4326}"
 TX_MINX=${TX_MINX:--107}
 TX_MINY=${TX_MINY:-24}
-TX_MAXX=${TX_MAXX:- -92}
+TX_MAXX=${TX_MAXX:--92}
 TX_MAXY=${TX_MAXY:-37}
-
-
-# Districts
-DISTRICTS="$(cat <<'EOF'
-01 PAR foreign_01
-02 FTW foreign_02
-03 WFS foreign_03
-04 AMA foreign_04
-05 LBB foreign_05
-06 ODA foreign_06
-07 SJT foreign_07
-08 ABL foreign_08
-09 WAC foreign_09
-10 TYL foreign_10
-11 LFK foreign_11
-12 HOU foreign_12
-13 YKM foreign_13
-14 AUS foreign_14
-15 SAT foreign_15
-16 CRP foreign_16
-17 BRY foreign_17
-18 DAL foreign_18
-19 ATL foreign_19
-20 BMT foreign_20
-21 PHR foreign_21
-22 LRD foreign_22
-23 BWD foreign_23
-24 ELP foreign_24
-25 CHS foreign_25
-EOF
-)"
 
 # Strip accidental quotes in env (compose quirks)
 strip_quotes() { sed -E "s/^'(.*)'\$/\1/; s/^\"(.*)\"\$/\1/"; }
-for v in GEOSERVER_URL AUTH PG_HOST PG_PORT PG_DB PG_USER PG_PASS WORKSPACE STORE_NAME SRS WORKFLOWS VIEWER_USER VIEWER_PASS; do
+for v in GEOSERVER_URL AUTH PG_HOST PG_PORT PG_DB PG_USER PG_PASS WORKSPACE STORE_NAME SRS WORKFLOWS VIEWER_USER VIEWER_PASS DISTRICT_PARAM_NAME REMOVE_LEGACY_DISTRICT_LAYERS REPLACE_EXISTING_TX_LAYERS; do
   eval "export $v=\"\$(printf %s \"\${$v}\" | strip_quotes)\""
 done
 
@@ -232,10 +204,26 @@ create_sqlview_layer () {
   local key_col="$3"
   local title="$4"
   local default_style="${5:-}"
+  local enable_district_param="${6:-false}"
+  local district_param_xml=""
+
+  if [[ "$enable_district_param" == "true" ]]; then
+    district_param_xml="<parameter>
+          <name>${DISTRICT_PARAM_NAME}</name>
+          <defaultValue>ALL</defaultValue>
+          <regexpValidator>(?i)^(ALL|[A-Z]{3})$</regexpValidator>
+        </parameter>"
+  fi
 
   # Already exists?
   if curl -fsS -u "$AUTH" "$GEOSERVER_URL/rest/layers/${WORKSPACE}:${layer_name}.xml" | grep -q "<name>${layer_name}</name>"; then
-    return 0
+    if [[ "${REPLACE_EXISTING_TX_LAYERS}" == "true" ]]; then
+      echo "[publish] Recreating existing layer ${WORKSPACE}:${layer_name}"
+      curl -fsS -u "$AUTH" -XDELETE \
+        "${GEOSERVER_URL}/rest/workspaces/${WORKSPACE}/datastores/${STORE_NAME}/featuretypes/${layer_name}.xml?recurse=true" >/dev/null || true
+    else
+      return 0
+    fi
   fi
 
   cat > /tmp/${layer_name}.xml <<EOF
@@ -256,6 +244,7 @@ create_sqlview_layer () {
           <type>Geometry</type>
           <srid>${SRS#EPSG:}</srid>
         </geometry>
+        ${district_param_xml}
       </virtualTable>
     </entry>
   </metadata>
@@ -285,32 +274,59 @@ EOF
   force_fixed_crs_and_bbox "${WORKSPACE}" "${STORE_NAME}" "${layer_name}"
 }
 
+remove_legacy_district_layers() {
+  if [[ "${REMOVE_LEGACY_DISTRICT_LAYERS}" != "true" ]]; then
+    return 0
+  fi
+
+  mapfile -t ws_layers < <(
+    curl -fsS -u "$AUTH" "$GEOSERVER_URL/rest/layers.json" \
+      | jq -r '.layers.layer[]?.name' \
+      | sed -n "s#^${WORKSPACE}:##p"
+  )
+
+  for layer_name in "${ws_layers[@]}"; do
+    for wf in ${WORKFLOWS}; do
+      if [[ "$layer_name" == "${wf}_"* ]] && [[ "$layer_name" != "${wf}_tx_"* ]]; then
+        echo "[cleanup] Removing legacy district layer ${WORKSPACE}:${layer_name}"
+        curl -fsS -u "$AUTH" -XDELETE \
+          "${GEOSERVER_URL}/rest/workspaces/${WORKSPACE}/datastores/${STORE_NAME}/featuretypes/${layer_name}.xml?recurse=true" >/dev/null || true
+        break
+      fi
+    done
+  done
+}
+
 # ================================
-# 4) Publish layers (TX-wide + per-district) filtered by workflow_id
+# 4) Publish TX-wide layers only (district is runtime SQL view parameter)
 # ================================
+remove_legacy_district_layers
+
 for WF in ${WORKFLOWS}; do
-  # TX-wide
   create_sqlview_layer \
     "${WF}_tx_flood" \
     "SELECT tile_id_tx AS id, geometry, model_run_time, workflow_id, source_db
      FROM public.mv_flood_merge_tx
-     WHERE COALESCE(workflow_id,'default')='${WF}'" \
-    "id" "TX Flood Merge (wf=${WF})" "floodstyle"
+     WHERE COALESCE(workflow_id,'default')='${WF}'
+       AND (UPPER('%${DISTRICT_PARAM_NAME}%')='ALL' OR source_db=UPPER('%${DISTRICT_PARAM_NAME}%'))" \
+    "id" "TX Flood Merge (wf=${WF})" "floodstyle" "true"
 
   create_sqlview_layer \
     "${WF}_tx_roads" \
-    "SELECT road_id_tx AS id, geometry, tile_id, max_flow, length_ft, workflow_id
+    "SELECT road_id_tx AS id, geometry, tile_id, max_flow, length_ft, workflow_id, source_db
      FROM public.mv_flood_road_trim_ln_tx
-     WHERE COALESCE(workflow_id,'default')='${WF}'" \
-    "id" "TX Flooded Roads (wf=${WF})"
+     WHERE COALESCE(workflow_id,'default')='${WF}'
+       AND (UPPER('%${DISTRICT_PARAM_NAME}%')='ALL' OR source_db=UPPER('%${DISTRICT_PARAM_NAME}%'))" \
+    "id" "TX Flooded Roads (wf=${WF})" "" "true"
 
   create_sqlview_layer \
     "${WF}_tx_bridges" \
     "SELECT bridge_idx_tx AS id, geometry, \"BRDG_ID\", name, ref, nhd_name, is_overtop,
             min_dist_to_low_ch, model_run_time, url, workflow_id, source_db
      FROM public.mv_bridge_warning_pnt_tx
-     WHERE COALESCE(workflow_id,'default')='${WF}'" \
-    "id" "TX Bridge Warnings (wf=${WF})"
+     WHERE COALESCE(workflow_id,'default')='${WF}'
+       AND (UPPER('%${DISTRICT_PARAM_NAME}%')='ALL' OR source_db=UPPER('%${DISTRICT_PARAM_NAME}%'))" \
+    "id" "TX Bridge Warnings (wf=${WF})" "" "true"
 
   create_sqlview_layer \
     "${WF}_tx_lwc" \
@@ -318,46 +334,9 @@ for WF in ${WORKFLOWS}; do
             name, osm_id, fclass, q_overtopped, q_0_5_ft, q_2_ft, q_5_ft,
             max_flow, is_overtopped, model_run_time, workflow_id, source_db
      FROM public.mv_lwc_pnt_tx
-     WHERE COALESCE(workflow_id,'default')='${WF}'" \
-    "id" "TX Low Water Crossings (wf=${WF})"
-
-  # Per district
-  while read -r DID DCODE SCHEMA; do
-    create_sqlview_layer \
-      "${WF}_${DCODE}_flood" \
-      "SELECT (tile_id::text || '_' || COALESCE(workflow_id,'default')) AS id,
-              geometry, model_run_time, workflow_id
-       FROM ${SCHEMA}.s_flood_merge_ar
-       WHERE COALESCE(workflow_id,'default')='${WF}'" \
-      "id" "${DCODE} Flood Merge (wf=${WF})" "floodstyle"
-
-    create_sqlview_layer \
-      "${WF}_${DCODE}_roads" \
-      "SELECT (road_id::text || '_' || COALESCE(workflow_id,'default')) AS id,
-              geometry, tile_id, max_flow, length_ft, workflow_id, name, ref, fclass
-       FROM ${SCHEMA}.s_flood_road_trim_ln
-       WHERE COALESCE(workflow_id,'default')='${WF}'" \
-      "id" "${DCODE} Flooded Roads (wf=${WF})"
-
-    create_sqlview_layer \
-      "${WF}_${DCODE}_bridges" \
-      "SELECT (COALESCE(\"BRDG_ID\",'') || '_' || row_number() OVER ()) AS id,
-              geometry, \"BRDG_ID\", name, ref, nhd_name, is_overtop, min_dist_to_low_ch,
-              model_run_time, url, workflow_id
-       FROM ${SCHEMA}.s_bridge_warning_pnt
-       WHERE COALESCE(workflow_id,'default')='${WF}'" \
-      "id" "${DCODE} Bridge Warnings (wf=${WF})"
-
-    create_sqlview_layer \
-      "${WF}_${DCODE}_lwc" \
-      "SELECT (lwc_id::text || '_' || COALESCE(workflow_id,'default')) AS id,
-              geometry, lwc_id, hydro_id, model_id, feature_id, name, osm_id, fclass,
-              q_overtopped, q_0_5_ft, q_2_ft, q_5_ft, max_flow, is_overtopped,
-              model_run_time, workflow_id
-       FROM ${SCHEMA}.s_lwc_pnt
-       WHERE COALESCE(workflow_id,'default')='${WF}'" \
-      "id" "${DCODE} Low Water Crossings (wf=${WF})"
-  done <<< "${DISTRICTS}"
+     WHERE COALESCE(workflow_id,'default')='${WF}'
+       AND (UPPER('%${DISTRICT_PARAM_NAME}%')='ALL' OR source_db=UPPER('%${DISTRICT_PARAM_NAME}%'))" \
+    "id" "TX Low Water Crossings (wf=${WF})" "" "true"
 done
 
 # ================================

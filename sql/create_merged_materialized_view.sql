@@ -66,39 +66,40 @@ DROP MATERIALIZED VIEW IF EXISTS mv_flood_road_trim_ln_tx;
 -- Create the materialized view with road_id_tx as combined key
 CREATE MATERIALIZED VIEW mv_flood_road_trim_ln_tx AS
 WITH all_roads AS (
-    SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id
+    SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id, 'PAR' AS source_db
     FROM foreign_01.s_flood_road_trim_ln
-    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id FROM foreign_02.s_flood_road_trim_ln
-    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id FROM foreign_03.s_flood_road_trim_ln
-    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id FROM foreign_04.s_flood_road_trim_ln
-    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id FROM foreign_05.s_flood_road_trim_ln
-    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id FROM foreign_06.s_flood_road_trim_ln
-    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id FROM foreign_07.s_flood_road_trim_ln
-    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id FROM foreign_08.s_flood_road_trim_ln
-    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id FROM foreign_09.s_flood_road_trim_ln
-    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id FROM foreign_10.s_flood_road_trim_ln
-    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id FROM foreign_11.s_flood_road_trim_ln
-    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id FROM foreign_12.s_flood_road_trim_ln
-    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id FROM foreign_13.s_flood_road_trim_ln
-    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id FROM foreign_14.s_flood_road_trim_ln
-    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id FROM foreign_15.s_flood_road_trim_ln
-    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id FROM foreign_16.s_flood_road_trim_ln
-    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id FROM foreign_17.s_flood_road_trim_ln
-    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id FROM foreign_18.s_flood_road_trim_ln
-    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id FROM foreign_19.s_flood_road_trim_ln
-    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id FROM foreign_20.s_flood_road_trim_ln
-    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id FROM foreign_21.s_flood_road_trim_ln
-    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id FROM foreign_22.s_flood_road_trim_ln
-    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id FROM foreign_23.s_flood_road_trim_ln
-    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id FROM foreign_24.s_flood_road_trim_ln
-    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id FROM foreign_25.s_flood_road_trim_ln
+    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id, 'FTW' AS source_db FROM foreign_02.s_flood_road_trim_ln
+    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id, 'WFS' AS source_db FROM foreign_03.s_flood_road_trim_ln
+    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id, 'AMA' AS source_db FROM foreign_04.s_flood_road_trim_ln
+    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id, 'LBB' AS source_db FROM foreign_05.s_flood_road_trim_ln
+    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id, 'ODA' AS source_db FROM foreign_06.s_flood_road_trim_ln
+    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id, 'SJT' AS source_db FROM foreign_07.s_flood_road_trim_ln
+    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id, 'ABL' AS source_db FROM foreign_08.s_flood_road_trim_ln
+    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id, 'WAC' AS source_db FROM foreign_09.s_flood_road_trim_ln
+    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id, 'TYL' AS source_db FROM foreign_10.s_flood_road_trim_ln
+    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id, 'LFK' AS source_db FROM foreign_11.s_flood_road_trim_ln
+    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id, 'HOU' AS source_db FROM foreign_12.s_flood_road_trim_ln
+    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id, 'YKM' AS source_db FROM foreign_13.s_flood_road_trim_ln
+    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id, 'AUS' AS source_db FROM foreign_14.s_flood_road_trim_ln
+    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id, 'SAT' AS source_db FROM foreign_15.s_flood_road_trim_ln
+    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id, 'CRP' AS source_db FROM foreign_16.s_flood_road_trim_ln
+    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id, 'BRY' AS source_db FROM foreign_17.s_flood_road_trim_ln
+    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id, 'DAL' AS source_db FROM foreign_18.s_flood_road_trim_ln
+    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id, 'ATL' AS source_db FROM foreign_19.s_flood_road_trim_ln
+    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id, 'BMT' AS source_db FROM foreign_20.s_flood_road_trim_ln
+    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id, 'PHR' AS source_db FROM foreign_21.s_flood_road_trim_ln
+    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id, 'LRD' AS source_db FROM foreign_22.s_flood_road_trim_ln
+    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id, 'BWD' AS source_db FROM foreign_23.s_flood_road_trim_ln
+    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id, 'ELP' AS source_db FROM foreign_24.s_flood_road_trim_ln
+    UNION ALL SELECT nextgen_id, osm_id, road_id, tile_id, max_flow, geometry, name, ref, fclass, model_run_time, length_ft, workflow_id, 'CHS' AS source_db FROM foreign_25.s_flood_road_trim_ln
 )
 SELECT
-    (road_id::text || '_' || tile_id::text || '_' || COALESCE(workflow_id, 'default')) AS road_id_tx,
+    (source_db || '_' || road_id::text || '_' || tile_id::text || '_' || COALESCE(workflow_id, 'default')) AS road_id_tx,
     MIN(nextgen_id) AS nextgen_id,
     MIN(osm_id) AS osm_id,
     road_id,
     tile_id,
+    source_db,
     MAX(max_flow) AS max_flow,
     ST_Union(geometry) AS geometry,
     MIN(name) AS name,
@@ -108,12 +109,13 @@ SELECT
     SUM(length_ft) AS length_ft,
     workflow_id
 FROM all_roads
-GROUP BY road_id, tile_id, workflow_id;
+GROUP BY source_db, road_id, tile_id, workflow_id;
 
 -- Create a unique index on the composite text key
 CREATE UNIQUE INDEX mv_flood_road_trim_ln_tx_uidx ON mv_flood_road_trim_ln_tx (road_id_tx);
 CREATE INDEX mv_flood_road_trim_ln_tx_tile_idx ON mv_flood_road_trim_ln_tx (tile_id);
 CREATE INDEX mv_flood_road_trim_ln_tx_wf_idx ON mv_flood_road_trim_ln_tx (workflow_id);
+CREATE INDEX mv_flood_road_trim_ln_tx_source_idx ON mv_flood_road_trim_ln_tx (source_db);
 
 
 
